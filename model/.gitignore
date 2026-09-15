@@ -1,0 +1,4 @@
+dataset/data
+.venv
+mcollector.duckdb
+mcollector*
