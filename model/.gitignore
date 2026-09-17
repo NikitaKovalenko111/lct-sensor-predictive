@@ -2,3 +2,5 @@ dataset/data
 .venv
 mcollector.duckdb
 mcollector*
+*.parquet
+/models

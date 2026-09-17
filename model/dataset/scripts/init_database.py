@@ -6,6 +6,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 DATA_DIR = SCRIPT_DIR.parent / "data"
 DB_FILE = SCRIPT_DIR / "mcollector.duckdb"
 CHANNELS_FILE = DATA_DIR / "channels.csv"
+OBJECTS_FILE = DATA_DIR / "objects.csv"
 CSV_FILES = sorted(DATA_DIR.glob("ext-journal-*.csv"))
 
 print("=" * 70)
@@ -49,7 +50,16 @@ try:
     """)
     print("Каналов:", con.execute("SELECT COUNT(*) FROM channels").fetchone()[0])
 
-    print("\n=== 2. EVENTS ===")
+    print("\n=== 2. OBJECTS ===")
+    con.execute(f"""
+        CREATE TABLE objects AS
+        SELECT *
+        FROM read_csv_auto('{OBJECTS_FILE.as_posix()}', header=true, sample_size=-1)
+    """)
+
+    print("Объектов:", con.execute("SELECT COUNT(*) FROM objects").fetchone()[0])
+
+    print("\n=== 3. EVENTS ===")
     con.execute("""
         CREATE TABLE events (
             ид_события BIGINT,
