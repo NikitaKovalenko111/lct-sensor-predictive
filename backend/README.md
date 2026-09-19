@@ -70,12 +70,16 @@ does not calculate it; selected values can be returned in `features_used` for di
 - `cmd/worker` — Kafka consumers that persist telemetry and predictions.
 - `cmd/mock-model` — replaceable development stand-in for Python models.
 - `cmd/simulator` — synthetic near-real-time sensor events.
-- `cmd/importer` — reserved for the streaming CSV/XLSX import command.
+- `cmd/importer` — streaming CSV import for objects, channels and historical events.
 
 ## Internal packages
 
 - `internal/config` — environment configuration.
 - `internal/contracts` — versioned Kafka DTOs shared with Python.
+- `internal/objects` — infrastructure hierarchy and synthetic GeoJSON geometry.
+- `internal/channels` — sensor registry and channel-to-object lookup.
+- `internal/importer` — streaming CSV parsing and batch import orchestration.
+- `internal/importjob` — import status and progress persistence.
 - `internal/platform/database` — PostgreSQL connection infrastructure.
 - `internal/platform/kafka` — Kafka producer/consumer construction.
 - `internal/telemetry` — sensor-event publishing and persistence.
@@ -92,4 +96,46 @@ from `migrations`, then run:
 go run ./cmd/api
 go run ./cmd/worker
 go run ./cmd/mock-model
+```
+
+## Import historical data
+
+Import files in dependency order: objects, channels, then events. The importer accepts
+comma-, semicolon- and tab-separated UTF-8 CSV files and recognizes both the original
+Russian headers and normalized English aliases.
+
+```bash
+go run ./cmd/importer \
+  --objects /data/objects.csv \
+  --channels /data/channels.csv \
+  --events /data/ext-journal-2026.csv \
+  --batch-size 500
+```
+
+For Docker, mount the dataset read-only and enable the tools profile:
+
+```bash
+docker compose --profile tools run --rm \
+  -v /absolute/path/to/data:/data:ro \
+  importer \
+  --objects /data/objects.csv \
+  --channels /data/channels.csv \
+  --events /data/ext-journal-2026.csv
+```
+
+Large event files are never loaded fully into memory. Events are enriched through the
+channel registry and published to Kafka in batches. Progress is available at
+`GET /api/v1/imports` and `GET /api/v1/imports/{import_id}`.
+
+## Object map
+
+The source dataset has no usable real coordinates. During object import the backend
+generates deterministic schematic `MultiLineString` geometry. Every GeoJSON feature is
+explicitly marked with `synthetic: true`.
+
+```text
+GET /api/v1/objects
+GET /api/v1/objects/{object_id}
+GET /api/v1/channels?object_id=...
+GET /api/v1/map/objects.geojson
 ```

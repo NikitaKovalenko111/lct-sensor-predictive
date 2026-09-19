@@ -10,7 +10,10 @@ import (
 	"time"
 
 	docs "github.com/NikitaKovalenko111/lct-sensor-predictive/backend/api"
+	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/channels"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/contracts"
+	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/importjob"
+	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/objects"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/prediction"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/telemetry"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,7 +25,11 @@ type Server struct {
 	database    *pgxpool.Pool
 	kafka       *kgo.Client
 	publisher   *telemetry.Publisher
+	telemetry   *telemetry.Repository
 	predictions *prediction.Repository
+	objects     *objects.Repository
+	channels    *channels.Repository
+	imports     *importjob.Repository
 	logger      *slog.Logger
 }
 
@@ -31,19 +38,31 @@ func New(
 	database *pgxpool.Pool,
 	kafkaClient *kgo.Client,
 	publisher *telemetry.Publisher,
+	telemetryRepository *telemetry.Repository,
 	predictions *prediction.Repository,
+	objectRepository *objects.Repository,
+	channelRepository *channels.Repository,
+	importRepository *importjob.Repository,
 	logger *slog.Logger,
 ) *Server {
 	server := &Server{
-		database: database, kafka: kafkaClient, publisher: publisher,
-		predictions: predictions, logger: logger,
+		database: database, kafka: kafkaClient, publisher: publisher, telemetry: telemetryRepository,
+		predictions: predictions, objects: objectRepository, channels: channelRepository,
+		imports: importRepository, logger: logger,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", server.live)
 	mux.HandleFunc("GET /health/ready", server.ready)
 	mux.HandleFunc("GET /api/openapi.yaml", server.openAPI)
 	mux.HandleFunc("POST /api/v1/sensor-events", server.publishSensorEvent)
+	mux.HandleFunc("GET /api/v1/sensor-events", server.listSensorEvents)
 	mux.HandleFunc("GET /api/v1/predictions", server.listPredictions)
+	mux.HandleFunc("GET /api/v1/objects", server.listObjects)
+	mux.HandleFunc("GET /api/v1/objects/{object_id}", server.getObject)
+	mux.HandleFunc("GET /api/v1/channels", server.listChannels)
+	mux.HandleFunc("GET /api/v1/map/objects.geojson", server.objectsGeoJSON)
+	mux.HandleFunc("GET /api/v1/imports", server.listImports)
+	mux.HandleFunc("GET /api/v1/imports/{import_id}", server.getImport)
 	server.httpServer = &http.Server{
 		Addr:              addr,
 		Handler:           requestLog(logger, recoverPanic(logger, cors(mux))),
@@ -108,6 +127,23 @@ func (s *Server) publishSensorEvent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"event_id": event.EventID, "status": "accepted"})
 }
 
+func (s *Server) listSensorEvents(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	items, err := s.telemetry.List(r.Context(), telemetry.ListFilter{
+		ObjectID:  parseInt64(query.Get("object_id")),
+		ChannelID: query.Get("channel_id"),
+		AlarmOnly: query.Get("alarm_only") == "true",
+		Limit:     int(parseInt64(query.Get("limit"))),
+		Offset:    int(parseInt64(query.Get("offset"))),
+	})
+	if err != nil {
+		s.logger.Error("list sensor events", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list sensor events")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
 func (s *Server) listPredictions(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	filter := prediction.ListFilter{
@@ -126,13 +162,127 @@ func (s *Server) listPredictions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
+func (s *Server) listObjects(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	items, err := s.objects.List(r.Context(), objects.ListFilter{
+		ParentID:   parseInt64(query.Get("parent_id")),
+		ObjectType: query.Get("object_type"),
+		Search:     query.Get("search"),
+		Limit:      int(parseInt64(query.Get("limit"))),
+		Offset:     int(parseInt64(query.Get("offset"))),
+	})
+	if err != nil {
+		s.logger.Error("list objects", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list objects")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *Server) getObject(w http.ResponseWriter, r *http.Request) {
+	objectID := parseInt64(r.PathValue("object_id"))
+	if objectID <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid object_id")
+		return
+	}
+	item, err := s.objects.Get(r.Context(), objectID)
+	if errors.Is(err, objects.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "object not found")
+		return
+	}
+	if err != nil {
+		s.logger.Error("get object", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to get object")
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	items, err := s.channels.ListByObject(
+		r.Context(),
+		parseInt64(query.Get("object_id")),
+		int(parseInt64(query.Get("limit"))),
+		int(parseInt64(query.Get("offset"))),
+	)
+	if err != nil {
+		s.logger.Error("list channels", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list channels")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *Server) objectsGeoJSON(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	items, err := s.objects.List(r.Context(), objects.ListFilter{
+		ObjectType: query.Get("object_type"),
+		Limit:      int(parseInt64(query.Get("limit"))),
+		Offset:     int(parseInt64(query.Get("offset"))),
+	})
+	if err != nil {
+		s.logger.Error("list map objects", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to build GeoJSON")
+		return
+	}
+	features := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		features = append(features, map[string]any{
+			"type":     "Feature",
+			"id":       item.ObjectID,
+			"geometry": item.Geometry,
+			"properties": map[string]any{
+				"object_id":       item.ObjectID,
+				"parent_id":       item.ParentID,
+				"object_type":     item.ObjectType,
+				"dispatcher_name": item.DispatcherName,
+				"synthetic":       true,
+			},
+		})
+	}
+	w.Header().Set("Content-Type", "application/geo+json; charset=utf-8")
+	writeJSON(w, http.StatusOK, map[string]any{"type": "FeatureCollection", "features": features})
+}
+
+func (s *Server) listImports(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	items, err := s.imports.List(
+		r.Context(),
+		int(parseInt64(query.Get("limit"))),
+		int(parseInt64(query.Get("offset"))),
+	)
+	if err != nil {
+		s.logger.Error("list imports", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list imports")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *Server) getImport(w http.ResponseWriter, r *http.Request) {
+	item, err := s.imports.Get(r.Context(), r.PathValue("import_id"))
+	if errors.Is(err, importjob.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "import job not found")
+		return
+	}
+	if err != nil {
+		s.logger.Error("get import", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to get import job")
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
 func parseInt64(value string) int64 {
 	parsed, _ := strconv.ParseInt(value, 10, 64)
 	return parsed
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	}
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
 }

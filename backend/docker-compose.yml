@@ -128,6 +128,21 @@ services:
         condition: service_completed_successfully
     profiles: ["demo"]
 
+  importer:
+    build:
+      context: .
+    entrypoint: ["/app/importer"]
+    environment:
+      <<: *backend-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
+    profiles: ["tools"]
+
   swagger-ui:
     image: swaggerapi/swagger-ui:v5.31.0
     environment:

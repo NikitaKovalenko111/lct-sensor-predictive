@@ -8,7 +8,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/channels"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/config"
+	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/importjob"
+	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/objects"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/platform/database"
 	kafkaplatform "github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/platform/kafka"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/prediction"
@@ -40,13 +43,18 @@ func main() {
 		os.Exit(1)
 	}
 	defer kafkaClient.Close()
+	objectRepository := objects.NewRepository(db)
 
 	server := httpapi.New(
 		cfg.HTTPAddr,
 		db,
 		kafkaClient,
 		telemetry.NewPublisher(kafkaClient, cfg.SensorEventsTopic),
+		telemetry.NewRepository(db),
 		prediction.NewRepository(db),
+		objectRepository,
+		channels.NewRepository(db, objectRepository),
+		importjob.NewRepository(db),
 		logger,
 	)
 

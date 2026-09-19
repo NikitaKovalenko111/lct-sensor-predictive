@@ -1,0 +1,3 @@
+ид_канала_данных;тип_инж_системы;тип_датчика;тег_инженерной_системы;название_датчика;ид_объект
+demo-temperature-1;fire_safety;temperature;demo-fire-1;Температурный датчик №1;1001
+demo-motion-1;security;movement;demo-security-1;Датчик движения №1;1001

@@ -23,6 +23,32 @@ paths:
         "503":
           description: At least one dependency is unavailable
   /api/v1/sensor-events:
+    get:
+      tags: [Telemetry]
+      summary: List stored sensor events
+      parameters:
+        - in: query
+          name: object_id
+          schema: { type: integer, format: int64 }
+        - in: query
+          name: channel_id
+          schema: { type: string }
+        - in: query
+          name: alarm_only
+          schema: { type: boolean, default: false }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Sensor event page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/SensorEvent" }
     post:
       tags: [Telemetry]
       summary: Publish one sensor event to Kafka
@@ -75,7 +101,123 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/Prediction"
+  /api/v1/objects:
+    get:
+      tags: [Objects]
+      summary: List infrastructure objects
+      parameters:
+        - in: query
+          name: parent_id
+          schema: { type: integer, format: int64 }
+        - in: query
+          name: object_type
+          schema: { type: string }
+        - in: query
+          name: search
+          schema: { type: string }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Object page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Object" }
+  /api/v1/objects/{object_id}:
+    get:
+      tags: [Objects]
+      summary: Get one infrastructure object
+      parameters:
+        - in: path
+          name: object_id
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Object details
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Object" }
+        "404": { description: Object not found }
+  /api/v1/channels:
+    get:
+      tags: [Objects]
+      summary: List sensor channels
+      parameters:
+        - in: query
+          name: object_id
+          schema: { type: integer, format: int64 }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Channel page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Channel" }
+  /api/v1/map/objects.geojson:
+    get:
+      tags: [Objects]
+      summary: Get schematic objects as a GeoJSON FeatureCollection
+      description: All returned geometries are synthetic and are not real collector coordinates.
+      parameters:
+        - in: query
+          name: object_type
+          schema: { type: string }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: GeoJSON FeatureCollection
+          content:
+            application/geo+json:
+              schema: { type: object, additionalProperties: true }
+  /api/v1/imports:
+    get:
+      tags: [Imports]
+      summary: List CSV import jobs
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Import job page
+  /api/v1/imports/{import_id}:
+    get:
+      tags: [Imports]
+      summary: Get CSV import progress
+      parameters:
+        - in: path
+          name: import_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Import job
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImportJob" }
+        "404": { description: Import job not found }
 components:
+  parameters:
+    Limit:
+      in: query
+      name: limit
+      schema: { type: integer, default: 100, maximum: 500 }
+    Offset:
+      in: query
+      name: offset
+      schema: { type: integer, default: 0, minimum: 0 }
   schemas:
     SensorEvent:
       type: object
@@ -109,3 +251,37 @@ components:
           type: object
           additionalProperties: true
         model_version: { type: string }
+    Object:
+      type: object
+      required: [object_id, hierarchy_level, object_type, dispatcher_name]
+      properties:
+        object_id: { type: integer, format: int64 }
+        parent_id: { type: integer, format: int64, nullable: true }
+        hierarchy_level: { type: integer }
+        object_type: { type: string }
+        dispatcher_name: { type: string }
+        geometry:
+          type: object
+          additionalProperties: true
+    Channel:
+      type: object
+      required: [channel_id, object_id, sensor_type]
+      properties:
+        channel_id: { type: string }
+        object_id: { type: integer, format: int64 }
+        sensor_type: { type: string }
+        engineering_system: { type: string }
+        engineering_system_tag: { type: string }
+        sensor_name: { type: string }
+    ImportJob:
+      type: object
+      properties:
+        import_id: { type: string, format: uuid }
+        import_kind: { type: string, enum: [objects, channels, events] }
+        file_name: { type: string }
+        status: { type: string, enum: [pending, running, completed, failed] }
+        processed_rows: { type: integer, format: int64 }
+        failed_rows: { type: integer, format: int64 }
+        error_message: { type: string }
+        started_at: { type: string, format: date-time, nullable: true }
+        finished_at: { type: string, format: date-time, nullable: true }
