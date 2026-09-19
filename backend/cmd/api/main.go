@@ -1,0 +1,74 @@
+package main
+
+import (
+	"context"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/config"
+	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/platform/database"
+	kafkaplatform "github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/platform/kafka"
+	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/prediction"
+	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/telemetry"
+	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/transport/httpapi"
+)
+
+func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	cfg, err := config.Load()
+	if err != nil {
+		logger.Error("load config", "error", err)
+		os.Exit(1)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	db, err := database.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		logger.Error("connect database", "error", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	kafkaClient, err := kafkaplatform.NewProducer(cfg.KafkaBrokers)
+	if err != nil {
+		logger.Error("create kafka client", "error", err)
+		os.Exit(1)
+	}
+	defer kafkaClient.Close()
+
+	server := httpapi.New(
+		cfg.HTTPAddr,
+		db,
+		kafkaClient,
+		telemetry.NewPublisher(kafkaClient, cfg.SensorEventsTopic),
+		prediction.NewRepository(db),
+		logger,
+	)
+
+	serverErr := make(chan error, 1)
+	go func() {
+		logger.Info("api started", "address", cfg.HTTPAddr)
+		serverErr <- server.ListenAndServe()
+	}()
+
+	select {
+	case err := <-serverErr:
+		if err != nil {
+			logger.Error("api stopped", "error", err)
+			os.Exit(1)
+		}
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			logger.Error("graceful shutdown", "error", err)
+		}
+		// Give structured log handlers a chance to flush in container runtimes.
+		time.Sleep(10 * time.Millisecond)
+	}
+}

@@ -1,0 +1,111 @@
+openapi: 3.0.3
+info:
+  title: Sensor Predictive Backend API
+  version: 0.1.0
+  description: Backend MVP for incident prediction in engineering collectors.
+servers:
+  - url: http://localhost:8080
+paths:
+  /health/live:
+    get:
+      tags: [System]
+      summary: Process liveness probe
+      responses:
+        "200":
+          description: Process is alive
+  /health/ready:
+    get:
+      tags: [System]
+      summary: PostgreSQL and Kafka readiness probe
+      responses:
+        "200":
+          description: Dependencies are ready
+        "503":
+          description: At least one dependency is unavailable
+  /api/v1/sensor-events:
+    post:
+      tags: [Telemetry]
+      summary: Publish one sensor event to Kafka
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SensorEvent"
+      responses:
+        "202":
+          description: Event accepted by Kafka
+        "400":
+          description: Invalid event
+        "503":
+          description: Kafka is unavailable
+  /api/v1/predictions:
+    get:
+      tags: [Predictions]
+      summary: List predictions
+      parameters:
+        - in: query
+          name: object_id
+          schema: { type: integer, format: int64 }
+        - in: query
+          name: prediction_type
+          schema:
+            type: string
+            enum: [fire_risk, nsd_event, nsd_risk, equipment_failure]
+        - in: query
+          name: risk_level
+          schema:
+            type: string
+            enum: [low, medium, high, critical]
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50, maximum: 200 }
+        - in: query
+          name: offset
+          schema: { type: integer, default: 0 }
+      responses:
+        "200":
+          description: Prediction page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Prediction"
+components:
+  schemas:
+    SensorEvent:
+      type: object
+      required: [event_id, object_id, channel_id, sensor_type, engineering_system, value, is_alarm, timestamp]
+      properties:
+        schema_version: { type: integer, default: 1 }
+        event_id: { type: string }
+        object_id: { type: integer, format: int64 }
+        channel_id: { type: string }
+        sensor_type: { type: string }
+        engineering_system: { type: string }
+        value: { type: string }
+        is_alarm: { type: boolean }
+        timestamp: { type: string, format: date-time }
+    Prediction:
+      type: object
+      required: [object_id, prediction_type, risk_score, risk_level, predicted_at, features_used, model_version]
+      properties:
+        schema_version: { type: integer, default: 1 }
+        prediction_id: { type: string, format: uuid }
+        object_id: { type: integer, format: int64 }
+        prediction_type:
+          type: string
+          enum: [fire_risk, nsd_event, nsd_risk, equipment_failure]
+        risk_score: { type: number, format: double, minimum: 0, maximum: 1 }
+        risk_level:
+          type: string
+          enum: [low, medium, high, critical]
+        predicted_at: { type: string, format: date-time }
+        features_used:
+          type: object
+          additionalProperties: true
+        model_version: { type: string }
