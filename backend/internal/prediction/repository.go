@@ -18,11 +18,12 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-func (r *Repository) Upsert(ctx context.Context, prediction contracts.Prediction) error {
+func (r *Repository) Upsert(ctx context.Context, prediction contracts.Prediction) (string, error) {
 	if err := prediction.Validate(); err != nil {
-		return err
+		return "", err
 	}
-	_, err := r.pool.Exec(ctx, `
+	var predictionID string
+	err := r.pool.QueryRow(ctx, `
 		INSERT INTO predictions (
 			prediction_id, object_id, prediction_type, risk_score, risk_level,
 			predicted_at, features_used, model_version, schema_version
@@ -35,13 +36,14 @@ func (r *Repository) Upsert(ctx context.Context, prediction contracts.Prediction
 			risk_level = EXCLUDED.risk_level,
 			features_used = EXCLUDED.features_used,
 			updated_at = now()
+		RETURNING prediction_id::text
 	`, prediction.PredictionID, prediction.ObjectID, prediction.PredictionType,
 		prediction.RiskScore, prediction.RiskLevel, prediction.PredictedAt,
-		prediction.FeaturesUsed, prediction.ModelVersion, prediction.SchemaVersion)
+		prediction.FeaturesUsed, prediction.ModelVersion, prediction.SchemaVersion).Scan(&predictionID)
 	if err != nil {
-		return fmt.Errorf("upsert prediction: %w", err)
+		return "", fmt.Errorf("upsert prediction: %w", err)
 	}
-	return nil
+	return predictionID, nil
 }
 
 type ListFilter struct {

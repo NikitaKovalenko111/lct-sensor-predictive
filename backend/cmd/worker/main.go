@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/config"
+	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/incidents"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/platform/database"
 	kafkaplatform "github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/platform/kafka"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/prediction"
@@ -46,7 +47,12 @@ func main() {
 
 	workerErr := make(chan error, 2)
 	go func() {
-		workerErr <- prediction.NewConsumer(predictionConsumer, prediction.NewRepository(db), logger).Run(ctx)
+		workerErr <- prediction.NewConsumer(
+			predictionConsumer,
+			prediction.NewRepository(db),
+			incidents.NewRepository(db),
+			logger,
+		).Run(ctx)
 	}()
 	go func() {
 		workerErr <- telemetry.NewConsumer(telemetryConsumer, telemetry.NewRepository(db), logger).Run(ctx)

@@ -10,6 +10,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/sensor-events", s.publishSensorEvent)
 	mux.HandleFunc("GET /api/v1/sensor-events", s.listSensorEvents)
 	mux.HandleFunc("GET /api/v1/predictions", s.listPredictions)
+	s.registerIncidentRoutes(mux)
 
 	mux.HandleFunc("GET /api/v1/objects", s.listObjects)
 	mux.HandleFunc("GET /api/v1/objects/{object_id}", s.getObject)

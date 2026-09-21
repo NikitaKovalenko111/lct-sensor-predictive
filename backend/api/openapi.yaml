@@ -101,6 +101,150 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/Prediction"
+  /api/v1/incidents:
+    get:
+      tags: [Incidents]
+      summary: List dispatcher incidents created from high-risk predictions
+      parameters:
+        - in: query
+          name: object_id
+          schema: { type: integer, format: int64 }
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [new, in_review, resolved, dismissed]
+        - in: query
+          name: risk_level
+          schema:
+            type: string
+            enum: [high, critical]
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Incident page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Incident" }
+  /api/v1/incidents/stream:
+    get:
+      tags: [Incidents]
+      summary: Subscribe to incident changes using Server-Sent Events
+      description: Sends a ready event, incident events, and keep-alive comments every 15 seconds.
+      responses:
+        "200":
+          description: Long-lived SSE stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+  /api/v1/incidents/{incident_id}:
+    get:
+      tags: [Incidents]
+      summary: Get an incident with decisions and its work-order draft
+      parameters:
+        - $ref: "#/components/parameters/IncidentID"
+      responses:
+        "200":
+          description: Incident details
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IncidentDetail" }
+        "404": { description: Incident not found }
+  /api/v1/incidents/{incident_id}/assignment:
+    patch:
+      tags: [Incidents]
+      summary: Assign an incident to a dispatcher
+      parameters:
+        - $ref: "#/components/parameters/IncidentID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [assigned_to]
+              properties:
+                assigned_to: { type: string }
+      responses:
+        "200":
+          description: Updated incident
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Incident" }
+        "400": { description: Invalid request }
+        "404": { description: Incident not found or already closed }
+  /api/v1/incidents/{incident_id}/decisions:
+    post:
+      tags: [Incidents]
+      summary: Record a dispatcher decision
+      parameters:
+        - $ref: "#/components/parameters/IncidentID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision, actor]
+              properties:
+                decision:
+                  type: string
+                  enum: [confirmed, false_alarm, monitor, dispatch_crew]
+                actor: { type: string }
+                comment: { type: string }
+      responses:
+        "201":
+          description: Recorded decision
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IncidentDecision" }
+        "400": { description: Invalid request }
+        "404": { description: Incident not found or already closed }
+  /api/v1/incidents/{incident_id}/resolve:
+    post:
+      tags: [Incidents]
+      summary: Mark an incident as resolved
+      parameters:
+        - $ref: "#/components/parameters/IncidentID"
+      responses:
+        "200":
+          description: Resolved incident
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Incident" }
+        "404": { description: Incident not found or already closed }
+  /api/v1/incidents/{incident_id}/work-order-draft:
+    post:
+      tags: [Incidents]
+      summary: Create or update a mock work-order draft
+      parameters:
+        - $ref: "#/components/parameters/IncidentID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                description: { type: string }
+                priority:
+                  type: string
+                  enum: [normal, high, emergency]
+      responses:
+        "201":
+          description: Work-order draft
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkOrderDraft" }
+        "400": { description: Invalid request }
+        "404": { description: Incident not found }
   /api/v1/objects:
     get:
       tags: [Objects]
@@ -218,6 +362,11 @@ components:
       in: query
       name: offset
       schema: { type: integer, default: 0, minimum: 0 }
+    IncidentID:
+      in: path
+      name: incident_id
+      required: true
+      schema: { type: string, format: uuid }
   schemas:
     SensorEvent:
       type: object
@@ -251,6 +400,72 @@ components:
           type: object
           additionalProperties: true
         model_version: { type: string }
+    Incident:
+      type: object
+      required:
+        - incident_id
+        - prediction_id
+        - object_id
+        - incident_type
+        - risk_score
+        - risk_level
+        - status
+        - title
+        - created_at
+        - updated_at
+      properties:
+        incident_id: { type: string, format: uuid }
+        prediction_id: { type: string, format: uuid }
+        object_id: { type: integer, format: int64 }
+        incident_type:
+          type: string
+          enum: [fire_risk, nsd_event, nsd_risk, equipment_failure]
+        risk_score: { type: number, format: double, minimum: 0, maximum: 1 }
+        risk_level: { type: string, enum: [high, critical] }
+        status: { type: string, enum: [new, in_review, resolved, dismissed] }
+        title: { type: string }
+        description: { type: string }
+        assigned_to: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        resolved_at: { type: string, format: date-time, nullable: true }
+    IncidentDecision:
+      type: object
+      required: [decision_id, incident_id, decision, actor, comment, created_at]
+      properties:
+        decision_id: { type: string, format: uuid }
+        incident_id: { type: string, format: uuid }
+        decision:
+          type: string
+          enum: [confirmed, false_alarm, monitor, dispatch_crew]
+        actor: { type: string }
+        comment: { type: string }
+        created_at: { type: string, format: date-time }
+    WorkOrderDraft:
+      type: object
+      required: [work_order_id, incident_id, title, description, priority, status, created_at, updated_at]
+      properties:
+        work_order_id: { type: string, format: uuid }
+        incident_id: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: string }
+        priority: { type: string, enum: [normal, high, emergency] }
+        status: { type: string, enum: [draft] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    IncidentDetail:
+      allOf:
+        - $ref: "#/components/schemas/Incident"
+        - type: object
+          required: [decisions]
+          properties:
+            decisions:
+              type: array
+              items: { $ref: "#/components/schemas/IncidentDecision" }
+            work_order:
+              allOf:
+                - $ref: "#/components/schemas/WorkOrderDraft"
+              nullable: true
     Object:
       type: object
       required: [object_id, hierarchy_level, object_type, dispatcher_name]

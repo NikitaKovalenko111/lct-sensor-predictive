@@ -11,6 +11,7 @@ import (
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/channels"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/config"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/importjob"
+	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/incidents"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/objects"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/platform/database"
 	kafkaplatform "github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/platform/kafka"
@@ -55,6 +56,7 @@ func main() {
 		objectRepository,
 		channels.NewRepository(db, objectRepository),
 		importjob.NewRepository(db),
+		incidents.NewRepository(db),
 		logger,
 	)
 

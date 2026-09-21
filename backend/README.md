@@ -1,8 +1,8 @@
 # Sensor Predictive Backend
 
 Go backend for the hackathon MVP. It accepts sensor events, publishes them to Kafka,
-stores telemetry and model predictions in PostgreSQL, and exposes an HTTP API documented
-with OpenAPI.
+stores telemetry and model predictions in PostgreSQL, creates dispatcher incidents for
+high-risk predictions, and exposes an HTTP API documented with OpenAPI.
 
 ## Quick start with the mock model
 
@@ -40,7 +40,10 @@ POST /api/v1/sensor-events or simulator
                  prediction worker
                          |
                          v
-                    PostgreSQL
+              PostgreSQL + incidents
+                         |
+                         v
+                  REST API + SSE
 ```
 
 Kafka messages are keyed by `object_id`. Backend consumers use separate consumer
@@ -84,6 +87,7 @@ does not calculate it; selected values can be returned in `features_used` for di
 - `internal/platform/kafka` — Kafka producer/consumer construction.
 - `internal/telemetry` — sensor-event publishing and persistence.
 - `internal/prediction` — prediction consumption, validation and queries.
+- `internal/incidents` — dispatcher incidents, decisions, work-order drafts and SSE notifications.
 - `internal/mockmodel` — deterministic mock implementation of the Python model contract.
 - `internal/transport/httpapi` — REST routes and middleware.
 
@@ -139,3 +143,21 @@ GET /api/v1/objects/{object_id}
 GET /api/v1/channels?object_id=...
 GET /api/v1/map/objects.geojson
 ```
+
+## Dispatcher incidents and notifications
+
+Every persisted `high` or `critical` prediction creates one incident. A unique
+constraint on `prediction_id` prevents Kafka retries from creating duplicates.
+
+```text
+GET   /api/v1/incidents
+GET   /api/v1/incidents/{incident_id}
+PATCH /api/v1/incidents/{incident_id}/assignment
+POST  /api/v1/incidents/{incident_id}/decisions
+POST  /api/v1/incidents/{incident_id}/resolve
+POST  /api/v1/incidents/{incident_id}/work-order-draft
+GET   /api/v1/incidents/stream
+```
+
+The stream endpoint uses Server-Sent Events. PostgreSQL `LISTEN/NOTIFY` carries
+incident changes from the worker/API processes to each connected HTTP client.

@@ -9,6 +9,7 @@ import (
 
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/channels"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/importjob"
+	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/incidents"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/objects"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/prediction"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/telemetry"
@@ -26,6 +27,7 @@ type Server struct {
 	objects     *objects.Repository
 	channels    *channels.Repository
 	imports     *importjob.Repository
+	incidents   *incidents.Repository
 	logger      *slog.Logger
 }
 
@@ -39,12 +41,13 @@ func New(
 	objectRepository *objects.Repository,
 	channelRepository *channels.Repository,
 	importRepository *importjob.Repository,
+	incidentRepository *incidents.Repository,
 	logger *slog.Logger,
 ) *Server {
 	server := &Server{
 		database: database, kafka: kafkaClient, publisher: publisher, telemetry: telemetryRepository,
 		predictions: predictions, objects: objectRepository, channels: channelRepository,
-		imports: importRepository, logger: logger,
+		imports: importRepository, incidents: incidentRepository, logger: logger,
 	}
 	mux := http.NewServeMux()
 	server.registerRoutes(mux)
