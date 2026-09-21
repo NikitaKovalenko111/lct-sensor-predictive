@@ -148,6 +148,7 @@ class FeatureEngine:
     # МОДЕЛЬ 3: РИСК-СКОРИНГ НСД (10 фичей, на объект-день)
     # ==========================================================
     def nsd_risk_features(self, df: pd.DataFrame, day) -> dict:
+        day = pd.Timestamp(day).normalize()
         f = {}
         openings_ts = df.loc[
             df["is_alarm"]

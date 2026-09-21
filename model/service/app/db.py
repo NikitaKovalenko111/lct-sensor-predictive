@@ -1,47 +1,59 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, DateTime, Text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
 from datetime import datetime
-from config import settings
+from sqlalchemy import (create_engine, Column, Integer, BigInteger, String,
+                        Boolean, Float, DateTime, Text, Index, text)
+from sqlalchemy.orm import declarative_base, sessionmaker
+from .config import settings
 
 Base = declarative_base()
 
 class SensorEventDB(Base):
-    """Сырые события датчиков (для дообучения)."""
-    __tablename__ = "sensor_events"
-    
-    id = Column(Integer, primary_key=True)
+    """Проекция потока событий (роллинг ~45 дней). Только для фичей."""
+    __tablename__ = "events"
+    __table_args__ = (
+        Index("ix_ml_events_obj_ts", "object_id", "timestamp"),
+        Index("ix_ml_events_obj_type_ts", "object_id", "sensor_type", "timestamp"),
+        Index("ix_ml_events_alarm", "object_id", "timestamp"),
+        {"schema": "ml"},
+    )
+    id = Column(BigInteger, primary_key=True)
     event_id = Column(String, unique=True, index=True)
-    object_id = Column(Integer, index=True)
-    sensor_type = Column(String)
-    value = Column(String)
-    is_alarm = Column(Boolean)
-    timestamp = Column(DateTime, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    object_id = Column(Integer, nullable=False)
+    channel_id = Column(String)
+    sensor_type = Column(String, nullable=False)
+    engineering_system = Column(String)
+    value = Column(String, nullable=False)
+    is_alarm = Column(Boolean, nullable=False, default=False)
+    timestamp = Column(DateTime, nullable=False)
 
-class PredictionDB(Base):
-    """История прогнозов (для мониторинга качества)."""
-    __tablename__ = "predictions"
-    
-    id = Column(Integer, primary_key=True)
-    object_id = Column(Integer, index=True)
-    prediction_type = Column(String)
+class PredictionLogDB(Base):
+    """Своя копия прогнозов: мониторинг, дрейф, дообучение."""
+    __tablename__ = "prediction_log"
+    __table_args__ = (
+        Index("ix_ml_predlog_obj_ts", "object_id", "predicted_at"),
+        {"schema": "ml"},
+    )
+    id = Column(BigInteger, primary_key=True)
+    object_id = Column(Integer, nullable=False)
+    prediction_type = Column(String, nullable=False)
     risk_score = Column(Float)
     risk_level = Column(String)
-    features_json = Column(Text)  # JSON с фичами
-    predicted_at = Column(DateTime, index=True)
+    is_alert = Column(Boolean)
+    features_json = Column(Text)
+    predicted_at = Column(DateTime, default=datetime.utcnow)
 
-# Инициализация
-engine = create_engine(settings.database_url)
-Base.metadata.create_all(engine)
+engine = create_engine(settings.database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine)
 
-def save_event(event: SensorEventDB):
-    with SessionLocal() as session:
-        session.add(event)
-        session.commit()
+def init_db():
+    with engine.connect() as c:
+        c.execute(text("CREATE SCHEMA IF NOT EXISTS ml"))
+        c.commit()
+    Base.metadata.create_all(engine, checkfirst=True)
 
-def save_prediction(pred: PredictionDB):
-    with SessionLocal() as session:
-        session.add(pred)
-        session.commit()
+def prune_old_events(days: int = 45):
+    """Держим копию модели крошечной."""
+    from sqlalchemy import delete
+    cutoff = datetime.utcnow() - __import__("datetime").timedelta(days=days)
+    with SessionLocal() as s:
+        s.execute(delete(SensorEventDB).where(SensorEventDB.timestamp < cutoff))
+        s.commit()

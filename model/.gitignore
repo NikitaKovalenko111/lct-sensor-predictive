@@ -5,3 +5,4 @@ mcollector*
 *.parquet
 /models/*/saved
 catboost_info
+**/__pycache__
