@@ -7,6 +7,11 @@ import (
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/importjob"
 )
 
+func (s *Server) registerImportRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v1/imports", s.listImports)
+	mux.HandleFunc("GET /api/v1/imports/{import_id}", s.getImport)
+}
+
 func (s *Server) listImports(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	items, err := s.imports.List(

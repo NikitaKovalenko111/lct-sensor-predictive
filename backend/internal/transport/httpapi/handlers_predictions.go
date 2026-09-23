@@ -6,6 +6,10 @@ import (
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/prediction"
 )
 
+func (s *Server) registerPredictionRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v1/predictions", s.listPredictions)
+}
+
 func (s *Server) listPredictions(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	filter := prediction.ListFilter{

@@ -8,6 +8,12 @@ import (
 	docs "github.com/NikitaKovalenko111/lct-sensor-predictive/backend/api"
 )
 
+func (s *Server) registerSystemRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /health/live", s.live)
+	mux.HandleFunc("GET /health/ready", s.ready)
+	mux.HandleFunc("GET /api/openapi.yaml", s.openAPI)
+}
+
 func (s *Server) live(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

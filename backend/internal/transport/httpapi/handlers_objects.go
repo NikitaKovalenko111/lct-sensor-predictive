@@ -7,6 +7,13 @@ import (
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/objects"
 )
 
+func (s *Server) registerObjectRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v1/objects", s.listObjects)
+	mux.HandleFunc("GET /api/v1/objects/{object_id}", s.getObject)
+	mux.HandleFunc("GET /api/v1/channels", s.listChannels)
+	mux.HandleFunc("GET /api/v1/map/objects.geojson", s.objectsGeoJSON)
+}
+
 func (s *Server) listObjects(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	items, err := s.objects.List(r.Context(), objects.ListFilter{

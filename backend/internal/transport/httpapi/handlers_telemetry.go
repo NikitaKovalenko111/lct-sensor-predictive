@@ -8,6 +8,11 @@ import (
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/telemetry"
 )
 
+func (s *Server) registerTelemetryRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /api/v1/sensor-events", s.publishSensorEvent)
+	mux.HandleFunc("GET /api/v1/sensor-events", s.listSensorEvents)
+}
+
 func (s *Server) publishSensorEvent(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
