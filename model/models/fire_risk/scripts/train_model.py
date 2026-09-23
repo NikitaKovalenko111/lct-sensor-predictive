@@ -18,7 +18,7 @@ warnings.filterwarnings('ignore')
 # ============================================================
 # ПУТИ
 # ============================================================
-DATA_PATH = Path.cwd() / 'dataset/parquets/fire_risk/fire_risk_dataset_v2.parquet'
+DATA_PATH = Path.cwd() / 'dataset/parquets/fire_risk/fire_risk_dataset_v3_equipped.parquet'
 MODEL_DIR = Path.cwd() / 'models/fire_risk/saved'
 MODEL_DIR.mkdir(exist_ok=True)
 
@@ -56,6 +56,12 @@ FINAL_FEATURES = [
     'fan_24h', 'door_24h', 'pump_24h',
     # Временные признаки (БЕЗ year, БЕЗ is_night)
     'hour', 'dow', 'month', 'is_weekend'
+]
+
+FINAL_FEATURES += [
+    'temp_std_6h', 'temp_range_6h', 'temp_std_24h', 'temp_trend_6h',
+    'alarms_std_24h', 'alarms_peak_24h', 'alarms_active_hours_24h',
+    'motion_std_24h', 'motion_peak_24h',
 ]
 
 # ============================================================
