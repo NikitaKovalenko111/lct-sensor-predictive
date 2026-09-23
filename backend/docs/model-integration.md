@@ -19,6 +19,9 @@ It produces three prediction types:
 This module does not produce `equipment_failure`; that prediction must come from
 Samir's separate service using the same output topic and contract.
 
+One Python service hosts all three currently available models and uses one Kafka
+consumer group. The equipment-failure model will be integrated later.
+
 ## Kafka and database settings
 
 Backend topics are authoritative. Override the Python defaults with:
@@ -61,6 +64,52 @@ Dockerfile currently starts `python main.py`, although the entry point is
 Do not run `mock-model` together with the real model unless duplicate independent
 predictions are desired.
 
+The `.joblib` model artifacts will be copied into the Python service image. After the
+model branch is merged, the Python and Go services will be built and started from one
+repository and one Compose project.
+
+## On-demand prediction
+
+Kafka remains the transport for scheduled and event-triggered predictions. When the
+frontend explicitly requests a fresh prediction, it calls the Go endpoint:
+
+```http
+POST /api/v1/predictions/request
+Content-Type: application/json
+
+{
+  "object_id": 1001,
+  "prediction_types": ["fire_risk", "nsd_risk"]
+}
+```
+
+Go synchronously forwards this body to `POST /predict` on `MODEL_SERVICE_URL`. An
+omitted `prediction_types` means every prediction type supported on demand by the
+model. The Python response contract is:
+
+```json
+{
+  "predictions": [
+    {
+      "prediction_id": "42e662ce-fdac-4892-a75e-cc7fe195db1b",
+      "object_id": 1001,
+      "prediction_type": "fire_risk",
+      "risk_score": 0.72,
+      "risk_level": "high",
+      "is_alert": true,
+      "predicted_at": "2026-09-23T12:00:00Z",
+      "features_used": {"alarms_1h": 2},
+      "model_version": "v1.0"
+    }
+  ]
+}
+```
+
+The Python endpoint must publish the same predictions to `predictions.v1`. The HTTP
+response gives the frontend an immediate result; Kafka remains the sole path for
+durable Go persistence and incident creation. The current Python service does not yet
+expose `POST /predict`; until it is implemented, Go returns HTTP 503 for this request.
+
 ## Wire compatibility
 
 The Python input schema ignores the backend's extra `schema_version` field and accepts
@@ -95,39 +144,32 @@ Backend compatibility rules:
   `predictions.dlq.v1`; the envelope contains the original bytes as base64, source
   topic/partition/offset, failure time and error text.
 
-The next shared-contract revision should add a producer-generated `prediction_id`, a
-source window/correlation identifier, explicit timezone-aware RFC 3339 timestamps,
-`schema_version`, and the prediction horizon. Until then these fields must remain
-optional for compatibility with the current model service.
+`predicted_at` is the UTC time at which inference ran, not the start of the forecast
+window. Go stores it as technical metadata and does not use it to schedule inference.
+`is_alert` means the model-specific threshold was crossed and is authoritative for
+incident creation.
 
-## Required answers before enabling the real service
+The Python service will add a stable producer-generated UUID `prediction_id`. Until
+that is available, the field remains optional and the backend retains natural-key
+deduplication for compatibility. `model_version` is stored as diagnostic metadata and
+does not control backend behavior.
 
-Do not enable the Python consumer for a full historical import until the ML team has
-answered these questions:
+## Agreed ownership and retention
 
-1. Should the service consume the full 15 GB replay from `sensor.events.v1`, or only
-   events arriving after deployment? Its current `auto_offset_reset="earliest"` can
-   process the entire retained topic for a new consumer group.
-2. Is one consumer group (`model-service.v1`) shared by all three models, or will fire,
-   NSD event, NSD risk, and Samir's equipment-failure model run as separate consumers?
-3. Is `is_alert` authoritative for dispatcher incidents for every prediction type, or
-   should some types still use common risk-level thresholds?
-4. Is the naive `predicted_at` value always UTC? The backend currently interprets it as
-   UTC for compatibility.
-5. What are the exact forecast horizon, source-window end time, and correlation ID for
-   each prediction? These are required to explain and deduplicate periodic forecasts.
-6. Will the model generate a stable UUID `prediction_id`, especially when retrying a
-   calculation?
-7. Where will all `.joblib` artifacts be mounted, and how will their version/checksum be
-   reported as `model_version`?
-8. Should schema `ml` live in the backend PostgreSQL database or in a separate model
-   database, and who owns its migrations and retention policy?
-9. What health/error signal should backend and monitoring receive when feature
-   calculation or inference fails?
-10. What exact input/output contract and consumer group will Samir's
-    `equipment_failure` service use?
-11. Will the model branch be merged into the deployment branch, included through a Git
-    worktree, or built as an independently versioned image?
+The Python service continuously writes its own projection to schema `ml`, initializes
+its tables at service startup, retains events for 45 days, and prunes older rows. The
+Go backend stores the complete event history in its own tables without that retention
+limit. Online inference owns `ml.events` and `ml.prediction_log`; future retraining is
+a separate offline process.
 
-After these answers, run an end-to-end test with the real `.joblib` artifacts. The
-current backend smoke test uses an exact captured message shape, not live inference.
+## Deferred decisions
+
+- Whether a new Python consumer group processes all retained history or only events
+  arriving after deployment. Do not replay the full 15 GB until this is decided.
+- Python health/error signaling and its behavior for invalid Kafka records.
+- The exact input/output contract for the future equipment-failure model.
+- A live end-to-end test with the real `.joblib` artifacts after the branches and
+  Compose definitions are merged.
+
+The current backend smoke test uses an exact captured message shape, not live
+inference.

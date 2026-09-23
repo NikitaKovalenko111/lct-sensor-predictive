@@ -13,6 +13,7 @@ import (
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/config"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/importjob"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/incidents"
+	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/modelclient"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/objects"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/platform/database"
 	kafkaplatform "github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/platform/kafka"
@@ -55,6 +56,11 @@ func main() {
 		logger.Error("create token manager", "error", err)
 		os.Exit(1)
 	}
+	modelClient, err := modelclient.New(cfg.ModelServiceURL, cfg.ModelRequestTimeout)
+	if err != nil {
+		logger.Error("create model client", "error", err)
+		os.Exit(1)
+	}
 
 	kafkaClient, err := kafkaplatform.NewProducer(cfg.KafkaBrokers)
 	if err != nil {
@@ -76,6 +82,7 @@ func main() {
 		channels.NewRepository(db, objectRepository),
 		importjob.NewRepository(db),
 		incidents.NewRepository(db),
+		modelClient,
 		identityProvider,
 		tokenManager,
 		authRepository,

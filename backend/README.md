@@ -57,6 +57,12 @@ Messages that cannot be decoded or fail contract validation are copied to
 payload and validation error. Temporary database, Kafka publication and offset-commit
 failures are retried with bounded exponential backoff until shutdown.
 
+Scheduled and event-driven predictions use Kafka. For an explicit frontend request,
+`POST /api/v1/predictions/request` synchronously forwards the object and requested
+prediction types to the Python service's `POST /predict`. The Python service returns
+the result to Go and also publishes it to `predictions.v1`, keeping persistence and
+incident creation on the normal Kafka path.
+
 ## Model contract
 
 The source of truth for JSON fields is `internal/contracts/model.go`.

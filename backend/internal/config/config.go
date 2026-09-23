@@ -24,6 +24,8 @@ type Config struct {
 	BootstrapAdminUsername string
 	BootstrapAdminPassword string
 	CORSAllowedOrigins     []string
+	ModelServiceURL        string
+	ModelRequestTimeout    time.Duration
 }
 
 func Load() (Config, error) {
@@ -34,6 +36,10 @@ func Load() (Config, error) {
 	accessTTL, err := time.ParseDuration(env("JWT_ACCESS_TTL", "1h"))
 	if err != nil {
 		return Config{}, fmt.Errorf("parse JWT_ACCESS_TTL: %w", err)
+	}
+	modelRequestTimeout, err := time.ParseDuration(env("MODEL_REQUEST_TIMEOUT", "10s"))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse MODEL_REQUEST_TIMEOUT: %w", err)
 	}
 
 	return Config{
@@ -53,6 +59,8 @@ func Load() (Config, error) {
 		BootstrapAdminUsername: env("BOOTSTRAP_ADMIN_USERNAME", "admin"),
 		BootstrapAdminPassword: strings.TrimSpace(os.Getenv("BOOTSTRAP_ADMIN_PASSWORD")),
 		CORSAllowedOrigins:     splitCSV(env("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:5173")),
+		ModelServiceURL:        env("MODEL_SERVICE_URL", "http://model-service:8000"),
+		ModelRequestTimeout:    modelRequestTimeout,
 	}, nil
 }
 

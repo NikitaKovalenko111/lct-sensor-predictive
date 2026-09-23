@@ -11,6 +11,7 @@ import (
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/channels"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/importjob"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/incidents"
+	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/modelclient"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/objects"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/prediction"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/telemetry"
@@ -30,6 +31,7 @@ type Server struct {
 	channels         *channels.Repository
 	imports          *importjob.Repository
 	incidents        *incidents.Repository
+	model            *modelclient.Client
 	identityProvider auth.IdentityProvider
 	tokens           *auth.TokenManager
 	authRepository   *auth.Repository
@@ -49,6 +51,7 @@ func New(
 	channelRepository *channels.Repository,
 	importRepository *importjob.Repository,
 	incidentRepository *incidents.Repository,
+	modelClient *modelclient.Client,
 	identityProvider auth.IdentityProvider,
 	tokens *auth.TokenManager,
 	authRepository *auth.Repository,
@@ -57,7 +60,7 @@ func New(
 	server := &Server{
 		database: database, kafka: kafkaClient, publisher: publisher, telemetry: telemetryRepository,
 		predictions: predictions, objects: objectRepository, channels: channelRepository,
-		imports: importRepository, incidents: incidentRepository,
+		imports: importRepository, incidents: incidentRepository, model: modelClient,
 		identityProvider: identityProvider, tokens: tokens, authRepository: authRepository,
 		security: httpmiddleware.NewSecurity(tokens, authRepository, logger),
 		logger:   logger,

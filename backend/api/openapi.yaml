@@ -213,6 +213,29 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/Prediction"
+  /api/v1/predictions/request:
+    post:
+      tags: [Predictions]
+      summary: Request an on-demand prediction from the Python model service
+      description: |
+        Synchronously forwards the request to `POST /predict` in the Python service.
+        The Python service must also publish the returned predictions to
+        `predictions.v1` so they enter the normal persistence and incident pipeline.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OnDemandPredictionRequest" }
+      responses:
+        "200":
+          description: Predictions calculated by the model service
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OnDemandPredictionResponse" }
+        "400": { description: Invalid object or prediction type }
+        "404": { description: Object not found }
+        "502": { description: Model service returned an invalid response }
+        "503": { description: Model service is unavailable }
   /api/v1/incidents:
     get:
       tags: [Incidents]
@@ -557,6 +580,26 @@ components:
           type: object
           additionalProperties: true
         model_version: { type: string }
+    OnDemandPredictionRequest:
+      type: object
+      required: [object_id]
+      properties:
+        object_id: { type: integer, format: int64, minimum: 1 }
+        prediction_types:
+          type: array
+          uniqueItems: true
+          description: Empty or omitted means all model-supported on-demand prediction types.
+          items:
+            type: string
+            enum: [fire_risk, nsd_event, nsd_risk, equipment_failure]
+    OnDemandPredictionResponse:
+      type: object
+      required: [predictions]
+      properties:
+        predictions:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/Prediction" }
     Incident:
       type: object
       required:
