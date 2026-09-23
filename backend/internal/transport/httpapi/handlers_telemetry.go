@@ -4,13 +4,18 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/auth"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/contracts"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/telemetry"
 )
 
 func (s *Server) registerTelemetryRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/v1/sensor-events", s.publishSensorEvent)
-	mux.HandleFunc("GET /api/v1/sensor-events", s.listSensorEvents)
+	mux.HandleFunc("POST /api/v1/sensor-events", s.security.RequireRoles(
+		s.security.AuditMutation("sensor_event.publish", "sensor_event", s.publishSensorEvent), auth.RoleAdmin,
+	))
+	mux.HandleFunc("GET /api/v1/sensor-events", s.security.RequireRoles(
+		s.listSensorEvents, auth.RoleAdmin, auth.RoleDispatcher, auth.RoleAnalyst, auth.RoleManager,
+	))
 }
 
 func (s *Server) publishSensorEvent(w http.ResponseWriter, r *http.Request) {

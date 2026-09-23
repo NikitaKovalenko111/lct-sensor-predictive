@@ -13,15 +13,27 @@ type Config struct {
 	KafkaBrokers           []string
 	SensorEventsTopic      string
 	PredictionsTopic       string
+	SensorEventsDLQTopic   string
+	PredictionsDLQTopic    string
 	ConsumerGroup          string
 	TelemetryConsumerGroup string
 	ShutdownTimeout        time.Duration
+	JWTSecret              string
+	JWTIssuer              string
+	JWTAccessTTL           time.Duration
+	BootstrapAdminUsername string
+	BootstrapAdminPassword string
+	CORSAllowedOrigins     []string
 }
 
 func Load() (Config, error) {
 	timeout, err := time.ParseDuration(env("SHUTDOWN_TIMEOUT", "10s"))
 	if err != nil {
 		return Config{}, fmt.Errorf("parse SHUTDOWN_TIMEOUT: %w", err)
+	}
+	accessTTL, err := time.ParseDuration(env("JWT_ACCESS_TTL", "1h"))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse JWT_ACCESS_TTL: %w", err)
 	}
 
 	return Config{
@@ -30,9 +42,17 @@ func Load() (Config, error) {
 		KafkaBrokers:           splitCSV(env("KAFKA_BROKERS", "localhost:29092")),
 		SensorEventsTopic:      env("KAFKA_SENSOR_EVENTS_TOPIC", "sensor.events.v1"),
 		PredictionsTopic:       env("KAFKA_PREDICTIONS_TOPIC", "predictions.v1"),
+		SensorEventsDLQTopic:   env("KAFKA_SENSOR_EVENTS_DLQ_TOPIC", "sensor.events.dlq.v1"),
+		PredictionsDLQTopic:    env("KAFKA_PREDICTIONS_DLQ_TOPIC", "predictions.dlq.v1"),
 		ConsumerGroup:          env("KAFKA_CONSUMER_GROUP", "backend.predictions.v1"),
 		TelemetryConsumerGroup: env("KAFKA_TELEMETRY_CONSUMER_GROUP", "backend.telemetry.v1"),
 		ShutdownTimeout:        timeout,
+		JWTSecret:              env("JWT_SECRET", "local-development-secret-change-before-deploy"),
+		JWTIssuer:              env("JWT_ISSUER", "sensor-predictive-backend"),
+		JWTAccessTTL:           accessTTL,
+		BootstrapAdminUsername: env("BOOTSTRAP_ADMIN_USERNAME", "admin"),
+		BootstrapAdminPassword: strings.TrimSpace(os.Getenv("BOOTSTRAP_ADMIN_PASSWORD")),
+		CORSAllowedOrigins:     splitCSV(env("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:5173")),
 	}, nil
 }
 

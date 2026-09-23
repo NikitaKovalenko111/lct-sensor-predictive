@@ -39,7 +39,8 @@ func (r *Repository) CreateFromPrediction(ctx context.Context, predictionID stri
 		       END,
 		       'Инцидент автоматически создан по прогнозу модели'
 		FROM predictions
-		WHERE prediction_id = $1::uuid AND risk_level IN ('high', 'critical')
+		WHERE prediction_id = $1::uuid
+		  AND (is_alert IS TRUE OR (is_alert IS NULL AND risk_level IN ('high', 'critical')))
 		ON CONFLICT (prediction_id) DO NOTHING
 		RETURNING incident_id::text, prediction_id::text, object_id, incident_type,
 		          risk_score, risk_level, status, title, description,

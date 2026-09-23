@@ -9,17 +9,28 @@ import (
 	"strings"
 	"time"
 
+	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/auth"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/incidents"
 )
 
 func (s *Server) registerIncidentRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/v1/incidents", s.listIncidents)
-	mux.HandleFunc("GET /api/v1/incidents/stream", s.streamIncidents)
-	mux.HandleFunc("GET /api/v1/incidents/{incident_id}", s.getIncident)
-	mux.HandleFunc("PATCH /api/v1/incidents/{incident_id}/assignment", s.assignIncident)
-	mux.HandleFunc("POST /api/v1/incidents/{incident_id}/decisions", s.addIncidentDecision)
-	mux.HandleFunc("POST /api/v1/incidents/{incident_id}/resolve", s.resolveIncident)
-	mux.HandleFunc("POST /api/v1/incidents/{incident_id}/work-order-draft", s.createWorkOrderDraft)
+	readRoles := []string{auth.RoleAdmin, auth.RoleDispatcher, auth.RoleAnalyst, auth.RoleManager}
+	writeRoles := []string{auth.RoleAdmin, auth.RoleDispatcher}
+	mux.HandleFunc("GET /api/v1/incidents", s.security.RequireRoles(s.listIncidents, readRoles...))
+	mux.HandleFunc("GET /api/v1/incidents/stream", s.security.RequireRoles(s.streamIncidents, readRoles...))
+	mux.HandleFunc("GET /api/v1/incidents/{incident_id}", s.security.RequireRoles(s.getIncident, readRoles...))
+	mux.HandleFunc("PATCH /api/v1/incidents/{incident_id}/assignment", s.security.RequireRoles(
+		s.security.AuditMutation("incident.assign", "incident", s.assignIncident), writeRoles...,
+	))
+	mux.HandleFunc("POST /api/v1/incidents/{incident_id}/decisions", s.security.RequireRoles(
+		s.security.AuditMutation("incident.decide", "incident", s.addIncidentDecision), writeRoles...,
+	))
+	mux.HandleFunc("POST /api/v1/incidents/{incident_id}/resolve", s.security.RequireRoles(
+		s.security.AuditMutation("incident.resolve", "incident", s.resolveIncident), writeRoles...,
+	))
+	mux.HandleFunc("POST /api/v1/incidents/{incident_id}/work-order-draft", s.security.RequireRoles(
+		s.security.AuditMutation("work_order.upsert_draft", "incident", s.createWorkOrderDraft), writeRoles...,
+	))
 }
 
 func (s *Server) listIncidents(w http.ResponseWriter, r *http.Request) {

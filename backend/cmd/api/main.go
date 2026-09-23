@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/auth"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/channels"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/config"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/importjob"
@@ -37,6 +38,23 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+	authRepository := auth.NewRepository(db)
+	if err := authRepository.EnsureBootstrapAdmin(
+		ctx, cfg.BootstrapAdminUsername, cfg.BootstrapAdminPassword,
+	); err != nil {
+		logger.Error("create bootstrap admin", "error", err)
+		os.Exit(1)
+	}
+	identityProvider, err := auth.NewLocalProvider(authRepository)
+	if err != nil {
+		logger.Error("create identity provider", "error", err)
+		os.Exit(1)
+	}
+	tokenManager, err := auth.NewTokenManager(cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTAccessTTL)
+	if err != nil {
+		logger.Error("create token manager", "error", err)
+		os.Exit(1)
+	}
 
 	kafkaClient, err := kafkaplatform.NewProducer(cfg.KafkaBrokers)
 	if err != nil {
@@ -48,6 +66,7 @@ func main() {
 
 	server := httpapi.New(
 		cfg.HTTPAddr,
+		cfg.CORSAllowedOrigins,
 		db,
 		kafkaClient,
 		telemetry.NewPublisher(kafkaClient, cfg.SensorEventsTopic),
@@ -57,6 +76,9 @@ func main() {
 		channels.NewRepository(db, objectRepository),
 		importjob.NewRepository(db),
 		incidents.NewRepository(db),
+		identityProvider,
+		tokenManager,
+		authRepository,
 		logger,
 	)
 

@@ -4,12 +4,13 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/auth"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/importjob"
 )
 
 func (s *Server) registerImportRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/v1/imports", s.listImports)
-	mux.HandleFunc("GET /api/v1/imports/{import_id}", s.getImport)
+	mux.HandleFunc("GET /api/v1/imports", s.security.RequireRoles(s.listImports, auth.RoleAdmin, auth.RoleAnalyst))
+	mux.HandleFunc("GET /api/v1/imports/{import_id}", s.security.RequireRoles(s.getImport, auth.RoleAdmin, auth.RoleAnalyst))
 }
 
 func (s *Server) listImports(w http.ResponseWriter, r *http.Request) {

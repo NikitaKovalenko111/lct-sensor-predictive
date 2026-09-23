@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/config"
+	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/deadletter"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/incidents"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/platform/database"
 	kafkaplatform "github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/platform/kafka"
@@ -44,6 +45,12 @@ func main() {
 		os.Exit(1)
 	}
 	defer telemetryConsumer.Close()
+	deadLetterProducer, err := kafkaplatform.NewProducer(cfg.KafkaBrokers)
+	if err != nil {
+		logger.Error("create dead-letter producer", "error", err)
+		os.Exit(1)
+	}
+	defer deadLetterProducer.Close()
 
 	workerErr := make(chan error, 2)
 	go func() {
@@ -51,11 +58,17 @@ func main() {
 			predictionConsumer,
 			prediction.NewRepository(db),
 			incidents.NewRepository(db),
+			deadletter.NewPublisher(deadLetterProducer, cfg.PredictionsDLQTopic),
 			logger,
 		).Run(ctx)
 	}()
 	go func() {
-		workerErr <- telemetry.NewConsumer(telemetryConsumer, telemetry.NewRepository(db), logger).Run(ctx)
+		workerErr <- telemetry.NewConsumer(
+			telemetryConsumer,
+			telemetry.NewRepository(db),
+			deadletter.NewPublisher(deadLetterProducer, cfg.SensorEventsDLQTopic),
+			logger,
+		).Run(ctx)
 	}()
 	logger.Info("worker started", "predictions_topic", cfg.PredictionsTopic, "telemetry_topic", cfg.SensorEventsTopic)
 	select {

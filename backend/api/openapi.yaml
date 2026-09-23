@@ -5,9 +5,12 @@ info:
   description: Backend MVP for incident prediction in engineering collectors.
 servers:
   - url: http://localhost:8080
+security:
+  - bearerAuth: []
 paths:
   /health/live:
     get:
+      security: []
       tags: [System]
       summary: Process liveness probe
       responses:
@@ -15,6 +18,7 @@ paths:
           description: Process is alive
   /health/ready:
     get:
+      security: []
       tags: [System]
       summary: PostgreSQL and Kafka readiness probe
       responses:
@@ -22,6 +26,110 @@ paths:
           description: Dependencies are ready
         "503":
           description: At least one dependency is unavailable
+  /api/v1/auth/login:
+    post:
+      security: []
+      tags: [Authentication]
+      summary: Authenticate through the configured identity provider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string, format: password, minLength: 12 }
+      responses:
+        "200":
+          description: JWT access token and current user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoginResponse" }
+        "401": { description: Invalid username or password }
+  /api/v1/auth/me:
+    get:
+      tags: [Authentication]
+      summary: Get identity encoded in the current access token
+      responses:
+        "200":
+          description: Current identity
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id: { type: string, format: uuid }
+                  username: { type: string }
+                  role: { $ref: "#/components/schemas/Role" }
+        "401": { description: Missing, invalid, or expired token }
+  /api/v1/users:
+    get:
+      tags: [Administration]
+      summary: List local users (admin only)
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: User page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/User" }
+        "403": { description: Admin role is required }
+    post:
+      tags: [Administration]
+      summary: Create a local user (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password, role]
+              properties:
+                username: { type: string }
+                password: { type: string, format: password, minLength: 12 }
+                role: { $ref: "#/components/schemas/Role" }
+      responses:
+        "201":
+          description: Created user without password data
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { description: Invalid role or password }
+        "409": { description: Username already exists }
+  /api/v1/audit-logs:
+    get:
+      tags: [Administration]
+      summary: List security and mutation audit entries (admin only)
+      parameters:
+        - in: query
+          name: username
+          schema: { type: string }
+        - in: query
+          name: action
+          schema: { type: string }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Audit page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/AuditEntry" }
+        "403": { description: Admin role is required }
   /api/v1/sensor-events:
     get:
       tags: [Telemetry]
@@ -84,6 +192,10 @@ paths:
             type: string
             enum: [low, medium, high, critical]
         - in: query
+          name: alert_only
+          description: Return only predictions that crossed the model-specific threshold.
+          schema: { type: boolean, default: false }
+        - in: query
           name: limit
           schema: { type: integer, default: 50, maximum: 200 }
         - in: query
@@ -118,7 +230,7 @@ paths:
           name: risk_level
           schema:
             type: string
-            enum: [high, critical]
+            enum: [low, medium, high, critical]
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Offset"
       responses:
@@ -353,6 +465,11 @@ paths:
               schema: { $ref: "#/components/schemas/ImportJob" }
         "404": { description: Import job not found }
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
   parameters:
     Limit:
       in: query
@@ -368,6 +485,42 @@ components:
       required: true
       schema: { type: string, format: uuid }
   schemas:
+    Role:
+      type: string
+      enum: [admin, dispatcher, analyst, manager]
+    User:
+      type: object
+      required: [user_id, username, role, active, created_at]
+      properties:
+        user_id: { type: string, format: uuid }
+        username: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        active: { type: boolean }
+        created_at: { type: string, format: date-time }
+        last_login_at: { type: string, format: date-time, nullable: true }
+    LoginResponse:
+      type: object
+      required: [access_token, token_type, expires_at, user]
+      properties:
+        access_token: { type: string }
+        token_type: { type: string, enum: [Bearer] }
+        expires_at: { type: string, format: date-time }
+        user: { $ref: "#/components/schemas/User" }
+    AuditEntry:
+      type: object
+      required: [audit_id, username, action, resource_type, method, path, details, created_at]
+      properties:
+        audit_id: { type: integer, format: int64 }
+        user_id: { type: string, format: uuid }
+        username: { type: string }
+        action: { type: string }
+        resource_type: { type: string }
+        resource_id: { type: string }
+        method: { type: string }
+        path: { type: string }
+        remote_ip: { type: string }
+        details: { type: object, additionalProperties: true }
+        created_at: { type: string, format: date-time }
     SensorEvent:
       type: object
       required: [event_id, object_id, channel_id, sensor_type, engineering_system, value, is_alarm, timestamp]
@@ -395,6 +548,10 @@ components:
         risk_level:
           type: string
           enum: [low, medium, high, critical]
+        is_alert:
+          type: boolean
+          nullable: true
+          description: Model-specific threshold decision; absent for legacy producers.
         predicted_at: { type: string, format: date-time }
         features_used:
           type: object
@@ -421,7 +578,7 @@ components:
           type: string
           enum: [fire_risk, nsd_event, nsd_risk, equipment_failure]
         risk_score: { type: number, format: double, minimum: 0, maximum: 1 }
-        risk_level: { type: string, enum: [high, critical] }
+        risk_level: { type: string, enum: [low, medium, high, critical] }
         status: { type: string, enum: [new, in_review, resolved, dismissed] }
         title: { type: string }
         description: { type: string }

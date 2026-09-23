@@ -53,9 +53,43 @@ type Prediction struct {
 	PredictionType string          `json:"prediction_type"`
 	RiskScore      float64         `json:"risk_score"`
 	RiskLevel      string          `json:"risk_level"`
+	IsAlert        *bool           `json:"is_alert,omitempty"`
 	PredictedAt    time.Time       `json:"predicted_at"`
 	FeaturesUsed   json.RawMessage `json:"features_used"`
 	ModelVersion   string          `json:"model_version"`
+}
+
+// UnmarshalJSON accepts both RFC 3339 and the naive UTC timestamp emitted by the
+// current Python model through json.dumps(default=str).
+func (p *Prediction) UnmarshalJSON(data []byte) error {
+	type predictionAlias Prediction
+	var wire struct {
+		predictionAlias
+		PredictedAt string `json:"predicted_at"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	predictedAt, err := parseModelTime(wire.PredictedAt)
+	if err != nil {
+		return fmt.Errorf("parse predicted_at: %w", err)
+	}
+	*p = Prediction(wire.predictionAlias)
+	p.PredictedAt = predictedAt
+	return nil
+}
+
+func parseModelTime(value string) (time.Time, error) {
+	for _, layout := range []string{
+		time.RFC3339Nano,
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+	} {
+		if parsed, err := time.ParseInLocation(layout, value, time.UTC); err == nil {
+			return parsed.UTC(), nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unsupported timestamp %q", value)
 }
 
 func (p Prediction) Validate() error {

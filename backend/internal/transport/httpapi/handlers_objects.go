@@ -4,14 +4,16 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/auth"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/objects"
 )
 
 func (s *Server) registerObjectRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/v1/objects", s.listObjects)
-	mux.HandleFunc("GET /api/v1/objects/{object_id}", s.getObject)
-	mux.HandleFunc("GET /api/v1/channels", s.listChannels)
-	mux.HandleFunc("GET /api/v1/map/objects.geojson", s.objectsGeoJSON)
+	readRoles := []string{auth.RoleAdmin, auth.RoleDispatcher, auth.RoleAnalyst, auth.RoleManager}
+	mux.HandleFunc("GET /api/v1/objects", s.security.RequireRoles(s.listObjects, readRoles...))
+	mux.HandleFunc("GET /api/v1/objects/{object_id}", s.security.RequireRoles(s.getObject, readRoles...))
+	mux.HandleFunc("GET /api/v1/channels", s.security.RequireRoles(s.listChannels, readRoles...))
+	mux.HandleFunc("GET /api/v1/map/objects.geojson", s.security.RequireRoles(s.objectsGeoJSON, readRoles...))
 }
 
 func (s *Server) listObjects(w http.ResponseWriter, r *http.Request) {

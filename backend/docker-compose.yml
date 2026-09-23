@@ -5,8 +5,16 @@ x-backend-environment: &backend-environment
   KAFKA_BROKERS: kafka:9092
   KAFKA_SENSOR_EVENTS_TOPIC: sensor.events.v1
   KAFKA_PREDICTIONS_TOPIC: predictions.v1
+  KAFKA_SENSOR_EVENTS_DLQ_TOPIC: sensor.events.dlq.v1
+  KAFKA_PREDICTIONS_DLQ_TOPIC: predictions.dlq.v1
   KAFKA_CONSUMER_GROUP: backend.predictions.v1
   KAFKA_TELEMETRY_CONSUMER_GROUP: backend.telemetry.v1
+  JWT_SECRET: ${JWT_SECRET:-local-development-secret-change-before-deploy}
+  JWT_ISSUER: sensor-predictive-backend
+  JWT_ACCESS_TTL: 1h
+  BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-admin}
+  BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
 
 services:
   postgres:
@@ -58,6 +66,8 @@ services:
       - |
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic sensor.events.v1 --partitions 3 --replication-factor 1
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic predictions.v1 --partitions 3 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic sensor.events.dlq.v1 --partitions 3 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic predictions.dlq.v1 --partitions 3 --replication-factor 1
 
   migrate:
     image: migrate/migrate:v4.18.3

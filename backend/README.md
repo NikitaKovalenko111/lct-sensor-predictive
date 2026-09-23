@@ -6,6 +6,10 @@ high-risk predictions, and exposes an HTTP API documented with OpenAPI.
 
 ## Quick start with the mock model
 
+Copy `.env.example` to `.env` and replace `JWT_SECRET` and
+`BOOTSTRAP_ADMIN_PASSWORD` before the first startup. The password must contain at least
+12 characters.
+
 ```bash
 docker compose --profile mock --profile demo up --build
 ```
@@ -48,6 +52,10 @@ POST /api/v1/sensor-events or simulator
 
 Kafka messages are keyed by `object_id`. Backend consumers use separate consumer
 groups, so telemetry persistence and the model both receive every sensor event.
+Messages that cannot be decoded or fail contract validation are copied to
+`sensor.events.dlq.v1` or `predictions.dlq.v1` with their source offset, original
+payload and validation error. Temporary database, Kafka publication and offset-commit
+failures are retried with bounded exponential backoff until shutdown.
 
 ## Model contract
 
@@ -63,6 +71,12 @@ The source of truth for JSON fields is `internal/contracts/model.go`.
 The original Python `Prediction` contract has no `prediction_id`. Therefore backend
 deduplication currently uses `(object_id, prediction_type, predicted_at, model_version)`.
 Adding a UUID `prediction_id` is recommended but optional for compatibility.
+
+The current Python service contract, environment variables, timestamp compatibility,
+and launch procedure are documented in [`docs/model-integration.md`](docs/model-integration.md).
+
+Authentication, roles, bootstrap setup, and audit behavior are documented in
+[`docs/security.md`](docs/security.md).
 
 `ObjectFeatures` is treated as a model-side/intermediate structure. The Go backend
 does not calculate it; selected values can be returned in `features_used` for display.
@@ -146,8 +160,9 @@ GET /api/v1/map/objects.geojson
 
 ## Dispatcher incidents and notifications
 
-Every persisted `high` or `critical` prediction creates one incident. A unique
-constraint on `prediction_id` prevents Kafka retries from creating duplicates.
+A prediction creates an incident when the real model sets `is_alert=true`. Legacy
+producers without this field use `high` or `critical`. A unique constraint on
+`prediction_id` prevents Kafka retries from creating duplicates.
 
 ```text
 GET   /api/v1/incidents
