@@ -21,6 +21,17 @@ export interface LoginResponse {
   user: User
 }
 
+export interface CurrentIdentity {
+  user_id: string
+  username: string
+  role: Role
+}
+
+export interface BackendStatus {
+  live: boolean
+  ready: boolean
+}
+
 export interface Prediction {
   schema_version?: number
   prediction_id?: string

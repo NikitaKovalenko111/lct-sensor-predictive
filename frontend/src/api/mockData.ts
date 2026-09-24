@@ -203,7 +203,6 @@ export const mockUsers: User[] = [
   { user_id: 'u-admin', username: 'admin', role: 'admin', active: true, created_at: '2026-08-20T09:00:00+03:00', last_login_at: '2026-09-23T14:05:00+03:00' },
   { user_id: 'u-dispatcher', username: 'dispatcher', role: 'dispatcher', active: true, created_at: '2026-08-20T09:10:00+03:00', last_login_at: '2026-09-23T15:12:00+03:00' },
   { user_id: 'u-analyst', username: 'analyst', role: 'analyst', active: true, created_at: '2026-08-22T11:00:00+03:00', last_login_at: '2026-09-23T10:42:00+03:00' },
-  { user_id: 'u-manager', username: 'manager', role: 'manager', active: true, created_at: '2026-08-22T11:15:00+03:00', last_login_at: '2026-09-22T16:20:00+03:00' },
 ]
 
 export const mockAudit: AuditEntry[] = [

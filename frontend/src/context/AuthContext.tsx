@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { api } from '../api/client'
+import { accessTokenStore, CURRENT_USER_KEY } from '../api/runtime'
 import type { User } from '../types/api'
 
 interface AuthContextValue {
@@ -10,16 +11,14 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
-const USER_KEY = 'lct_current_user'
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const saved = localStorage.getItem(USER_KEY)
+    const saved = localStorage.getItem(CURRENT_USER_KEY)
     if (saved) {
-      try { setUser(JSON.parse(saved) as User) } catch { localStorage.removeItem(USER_KEY) }
+      try { setUser(JSON.parse(saved) as User) } catch { localStorage.removeItem(CURRENT_USER_KEY) }
     }
     setLoading(false)
   }, [])
@@ -29,13 +28,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loading,
     login: async (username, password) => {
       const response = await api.login(username, password)
-      localStorage.setItem('lct_access_token', response.access_token)
-      localStorage.setItem(USER_KEY, JSON.stringify(response.user))
+      accessTokenStore.set(response.access_token)
+      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(response.user))
       setUser(response.user)
     },
     logout: () => {
-      localStorage.removeItem('lct_access_token')
-      localStorage.removeItem(USER_KEY)
+      accessTokenStore.clear()
+      localStorage.removeItem(CURRENT_USER_KEY)
       setUser(null)
     },
   }), [user, loading])

@@ -1,11 +1,11 @@
-import { ArrowRight, Eye, EyeOff, Flame, LockKeyhole, ShieldCheck, UserRound } from 'lucide-react'
+import { ArrowRight, BarChart3, Eye, EyeOff, Headphones, LockKeyhole, Settings, UserRound } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { useAuth } from '../context/AuthContext'
 
 const demoAccounts = [
-  { label: 'Диспетчер', username: 'dispatcher', password: 'DispatchPredict2026!' },
-  { label: 'Аналитик', username: 'analyst', password: 'AnalystPredict2026!' },
-  { label: 'Администратор', username: 'admin', password: 'AdminPredict2026!' },
+  { label: 'Диспетчер', description: 'Работа с инцидентами', username: 'dispatcher', password: 'DispatchPredict2026!', icon: Headphones },
+  { label: 'Аналитик', description: 'Прогнозы и данные', username: 'analyst', password: 'AnalystPredict2026!', icon: BarChart3 },
+  { label: 'Администратор', description: 'Пользователи и роли', username: 'admin', password: 'AdminPredict2026!', icon: Settings },
 ]
 
 export function LoginPage() {
@@ -15,6 +15,12 @@ export function LoginPage() {
   const [visible, setVisible] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  const selectDemoAccount = (account: (typeof demoAccounts)[number]) => {
+    setUsername(account.username)
+    setPassword(account.password)
+    setError('')
+  }
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -27,25 +33,10 @@ export function LoginPage() {
 
   return (
     <main className="login-page">
-      <section className="login-visual">
-        <div className="login-brand"><span><ShieldCheck size={24} /></span><strong>КОНТУР</strong></div>
-        <div className="login-visual__content">
-          <p className="eyebrow eyebrow--light">Предиктивный мониторинг</p>
-          <h1>Риск виден<br />до инцидента.</h1>
-          <p>Единое рабочее пространство для контроля пожароопасности и несанкционированного доступа в инженерных коллекторах Москвы.</p>
-          <div className="login-features">
-            <div><span><Flame size={20} /></span><div><strong>Пожароопасность</strong><p>Раннее выявление температурных и дымовых аномалий</p></div></div>
-            <div><span><LockKeyhole size={20} /></span><div><strong>Контроль НСД</strong><p>Оценка риска и фиксация вероятных событий доступа</p></div></div>
-          </div>
-        </div>
-        <p className="login-visual__footer">АО «Москоллектор» · технологический прототип</p>
-      </section>
-
-      <section className="login-form-panel">
+      <section className="login-stack">
+        <div className="login-form-panel">
         <form className="login-form" onSubmit={submit}>
-          <p className="eyebrow">Защищённый контур</p>
           <h2>Вход в систему</h2>
-          <p className="login-form__lead">Используйте корпоративную учётную запись</p>
 
           <label className="field-label">Логин</label>
           <div className="input-wrap"><UserRound size={18} /><input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required /></div>
@@ -54,12 +45,19 @@ export function LoginPage() {
 
           {error && <div className="form-error">{error}</div>}
           <button className="button button--primary button--wide" disabled={loading}>{loading ? <span className="spinner spinner--light" /> : <>Войти <ArrowRight size={18} /></>}</button>
-
-          <div className="demo-accounts">
-            <span>Демо-доступ</span>
-            <div>{demoAccounts.map((account) => <button type="button" key={account.username} onClick={() => { setUsername(account.username); setPassword(account.password) }}>{account.label}</button>)}</div>
-          </div>
         </form>
+        </div>
+
+        <section className="login-test-accounts">
+          <div className="login-test-accounts__head"><div><strong>Тестовые аккаунты</strong><span>Нажмите, чтобы подставить данные</span></div><b>Демо</b></div>
+          <div className="login-test-accounts__grid">
+            {demoAccounts.map((account) => {
+              const Icon = account.icon
+              const active = username === account.username
+              return <button type="button" className={active ? 'test-account test-account--active' : 'test-account'} key={account.username} onClick={() => selectDemoAccount(account)} aria-pressed={active}><span><Icon size={20} /></span><div><strong>{account.label}</strong><small>{account.username}</small></div></button>
+            })}
+          </div>
+        </section>
       </section>
     </main>
   )

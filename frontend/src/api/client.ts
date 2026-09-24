@@ -1,6 +1,8 @@
 import type {
   AuditEntry,
+  BackendStatus,
   Channel,
+  CurrentIdentity,
   Incident,
   IncidentDecision,
   IncidentDecisionType,
@@ -26,6 +28,8 @@ import {
   mockSensorEvents,
   mockUsers,
 } from './mockData'
+import { ApiError, buildQuery, httpClient } from './http'
+import { accessTokenStore, apiRuntime } from './runtime'
 
 export interface PredictionFilters {
   object_id?: number
@@ -42,6 +46,8 @@ export interface IncidentFilters {
 
 export interface PredictiveApi {
   login(username: string, password: string): Promise<LoginResponse>
+  getCurrentUser(): Promise<CurrentIdentity>
+  getBackendStatus(): Promise<BackendStatus>
   listPredictions(filters?: PredictionFilters): Promise<Page<Prediction>>
   requestPrediction(objectId: number, predictionTypes: PredictionType[]): Promise<{ predictions: Prediction[] }>
   listIncidents(filters?: IncidentFilters): Promise<Page<Incident>>
@@ -55,13 +61,15 @@ export interface PredictiveApi {
   listSensorEvents(objectId?: number): Promise<Page<SensorEvent>>
   listUsers(): Promise<Page<User>>
   createUser(payload: { username: string; password: string; role: Role }): Promise<User>
+  updateUserRole(userId: string, role: Role): Promise<User>
+  deleteUser(userId: string): Promise<void>
   listAudit(): Promise<Page<AuditEntry>>
 }
 
 const delay = (ms = 180) => new Promise((resolve) => window.setTimeout(resolve, ms))
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 
-const STORAGE_KEY = 'lct_predictive_mock_state_v1'
+const STORAGE_KEY = 'lct_predictive_mock_state_v2'
 
 interface MockState {
   incidents: IncidentDetail[]
@@ -89,7 +97,6 @@ const credentials: Record<string, { password: string; role: Role }> = {
   admin: { password: 'AdminPredict2026!', role: 'admin' },
   dispatcher: { password: 'DispatchPredict2026!', role: 'dispatcher' },
   analyst: { password: 'AnalystPredict2026!', role: 'analyst' },
-  manager: { password: 'ManagerPredict2026!', role: 'manager' },
 }
 
 class MockApi implements PredictiveApi {
@@ -106,6 +113,16 @@ class MockApi implements PredictiveApi {
       user,
     }
   }
+
+  async getCurrentUser() {
+    await delay(80)
+    const username = accessTokenStore.get()?.replace('mock-token-', '')
+    const user = getMockState().users.find((item) => item.username === username)
+    if (!user) throw new ApiError('Сессия не найдена.', 401, 'http')
+    return { user_id: user.user_id, username: user.username, role: user.role }
+  }
+
+  async getBackendStatus() { await delay(80); return { live: true, ready: true } }
 
   async listPredictions(filters: PredictionFilters = {}) {
     await delay()
@@ -227,45 +244,61 @@ class MockApi implements PredictiveApi {
     return clone(user)
   }
 
+  async updateUserRole(userId: string, role: Role) {
+    await delay()
+    const state = getMockState()
+    const user = state.users.find((item) => item.user_id === userId)
+    if (!user) throw new Error('Пользователь не найден')
+    user.role = role
+    saveMockState(state)
+    return clone(user)
+  }
+
+  async deleteUser(userId: string) {
+    await delay()
+    const state = getMockState()
+    const user = state.users.find((item) => item.user_id === userId)
+    if (!user) throw new Error('Пользователь не найден')
+    if (user.username === 'admin') throw new Error('Системного администратора удалить нельзя')
+    state.users = state.users.filter((item) => item.user_id !== userId)
+    saveMockState(state)
+  }
+
   async listAudit() { await delay(); return { items: clone(mockAudit) } }
 }
 
 class LiveApi implements PredictiveApi {
-  private baseUrl = import.meta.env.VITE_API_URL || ''
-  private token = () => localStorage.getItem('lct_access_token')
-
-  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      ...init,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(this.token() ? { Authorization: `Bearer ${this.token()}` } : {}),
-        ...init.headers,
-      },
-    })
-    if (!response.ok) {
-      const message = response.status === 401 ? 'Сессия истекла. Войдите снова.' : `Ошибка API: ${response.status}`
-      throw new Error(message)
-    }
-    if (response.status === 204) return undefined as T
-    return response.json() as Promise<T>
+  login(username: string, password: string) { return httpClient.request<LoginResponse>('/api/v1/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }) }
+  getCurrentUser() { return httpClient.request<CurrentIdentity>('/api/v1/auth/me') }
+  async getBackendStatus() {
+    const [live, ready] = await Promise.allSettled([
+      httpClient.request<void>('/health/live'),
+      httpClient.request<void>('/health/ready'),
+    ])
+    return { live: live.status === 'fulfilled', ready: ready.status === 'fulfilled' }
   }
-
-  login(username: string, password: string) { return this.request<LoginResponse>('/api/v1/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }) }
-  listPredictions(filters: PredictionFilters = {}) { return this.request<Page<Prediction>>(`/api/v1/predictions?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)]))}`) }
-  requestPrediction(objectId: number, predictionTypes: PredictionType[]) { return this.request<{ predictions: Prediction[] }>('/api/v1/predictions/request', { method: 'POST', body: JSON.stringify({ object_id: objectId, prediction_types: predictionTypes }) }) }
-  listIncidents(filters: IncidentFilters = {}) { return this.request<Page<Incident>>(`/api/v1/incidents?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)]))}`) }
-  getIncident(id: string) { return this.request<IncidentDetail>(`/api/v1/incidents/${id}`) }
-  assignIncident(id: string, assignedTo: string) { return this.request<Incident>(`/api/v1/incidents/${id}/assignment`, { method: 'PATCH', body: JSON.stringify({ assigned_to: assignedTo }) }) }
-  addDecision(id: string, payload: { decision: IncidentDecisionType; actor: string; comment: string }) { return this.request<IncidentDecision>(`/api/v1/incidents/${id}/decisions`, { method: 'POST', body: JSON.stringify(payload) }) }
-  resolveIncident(id: string) { return this.request<Incident>(`/api/v1/incidents/${id}/resolve`, { method: 'POST' }) }
-  createWorkOrder(id: string, payload: { title: string; description: string; priority: WorkOrderPriority }) { return this.request<WorkOrderDraft>(`/api/v1/incidents/${id}/work-order-draft`, { method: 'POST', body: JSON.stringify(payload) }) }
-  listObjects(search = '') { return this.request<Page<InfrastructureObject>>(`/api/v1/objects?${new URLSearchParams({ search })}`) }
-  listChannels(objectId?: number) { return this.request<Page<Channel>>(`/api/v1/channels?${objectId ? `object_id=${objectId}` : ''}`) }
-  listSensorEvents(objectId?: number) { return this.request<Page<SensorEvent>>(`/api/v1/sensor-events?${objectId ? `object_id=${objectId}` : ''}`) }
-  listUsers() { return this.request<Page<User>>('/api/v1/users') }
-  createUser(payload: { username: string; password: string; role: Role }) { return this.request<User>('/api/v1/users', { method: 'POST', body: JSON.stringify(payload) }) }
-  listAudit() { return this.request<Page<AuditEntry>>('/api/v1/audit-logs') }
+  listPredictions(filters: PredictionFilters = {}) { return httpClient.request<Page<Prediction>>(`/api/v1/predictions${buildQuery(filters)}`) }
+  requestPrediction(objectId: number, predictionTypes: PredictionType[]) { return httpClient.request<{ predictions: Prediction[] }>('/api/v1/predictions/request', { method: 'POST', body: JSON.stringify({ object_id: objectId, prediction_types: predictionTypes }) }) }
+  listIncidents(filters: IncidentFilters = {}) { return httpClient.request<Page<Incident>>(`/api/v1/incidents${buildQuery(filters)}`) }
+  getIncident(id: string) { return httpClient.request<IncidentDetail>(`/api/v1/incidents/${id}`) }
+  assignIncident(id: string, assignedTo: string) { return httpClient.request<Incident>(`/api/v1/incidents/${id}/assignment`, { method: 'PATCH', body: JSON.stringify({ assigned_to: assignedTo }) }) }
+  addDecision(id: string, payload: { decision: IncidentDecisionType; actor: string; comment: string }) { return httpClient.request<IncidentDecision>(`/api/v1/incidents/${id}/decisions`, { method: 'POST', body: JSON.stringify(payload) }) }
+  resolveIncident(id: string) { return httpClient.request<Incident>(`/api/v1/incidents/${id}/resolve`, { method: 'POST' }) }
+  createWorkOrder(id: string, payload: { title: string; description: string; priority: WorkOrderPriority }) { return httpClient.request<WorkOrderDraft>(`/api/v1/incidents/${id}/work-order-draft`, { method: 'POST', body: JSON.stringify(payload) }) }
+  listObjects(search = '') { return httpClient.request<Page<InfrastructureObject>>(`/api/v1/objects${buildQuery({ search })}`) }
+  listChannels(objectId?: number) { return httpClient.request<Page<Channel>>(`/api/v1/channels${buildQuery({ object_id: objectId })}`) }
+  listSensorEvents(objectId?: number) { return httpClient.request<Page<SensorEvent>>(`/api/v1/sensor-events${buildQuery({ object_id: objectId })}`) }
+  listUsers() { return httpClient.request<Page<User>>('/api/v1/users') }
+  createUser(payload: { username: string; password: string; role: Role }) { return httpClient.request<User>('/api/v1/users', { method: 'POST', body: JSON.stringify(payload) }) }
+  updateUserRole(userId: string, role: Role) {
+    if (!apiRuntime.userMutationsEnabled) throw new ApiError('Backend пока не предоставляет изменение роли пользователя.', 501, 'contract')
+    return httpClient.request<User>(`/api/v1/users/${userId}`, { method: 'PATCH', body: JSON.stringify({ role }) })
+  }
+  deleteUser(userId: string) {
+    if (!apiRuntime.userMutationsEnabled) throw new ApiError('Backend пока не предоставляет удаление пользователя.', 501, 'contract')
+    return httpClient.request<void>(`/api/v1/users/${userId}`, { method: 'DELETE' })
+  }
+  listAudit() { return httpClient.request<Page<AuditEntry>>('/api/v1/audit-logs') }
 }
 
-export const api: PredictiveApi = import.meta.env.VITE_API_MODE === 'live' ? new LiveApi() : new MockApi()
+export const api: PredictiveApi = apiRuntime.mode === 'live' ? new LiveApi() : new MockApi()

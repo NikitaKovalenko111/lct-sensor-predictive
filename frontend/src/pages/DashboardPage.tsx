@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { RiskBadge } from '../components/common/RiskBadge'
 import { PageHeader } from '../components/common/PageHeader'
-import { RiskMap } from '../components/dashboard/RiskMap'
+import { YandexRiskMap } from '../components/dashboard/YandexRiskMap'
 import { TrendChart } from '../components/dashboard/TrendChart'
 import { useData } from '../context/DataContext'
 import { formatDateTime, formatPercent, getHorizonHours, predictionTypeShortLabel, statusLabel } from '../lib/format'
@@ -41,7 +41,7 @@ export function DashboardPage() {
       <section className="dashboard-grid">
         <article className="panel panel--map">
           <div className="panel__head"><div><p className="eyebrow">География рисков</p><h2>Состояние объектов</h2></div><button className="text-button" onClick={() => navigate('/objects')}>Все объекты <ArrowUpRight size={15} /></button></div>
-          <RiskMap objects={objects} incidents={incidents} onSelect={openIncident} />
+          <YandexRiskMap objects={objects} incidents={incidents} onSelect={openIncident} />
         </article>
 
         <article className="panel panel--incidents">
