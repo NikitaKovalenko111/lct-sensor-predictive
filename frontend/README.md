@@ -9,17 +9,16 @@ npm install
 npm run dev
 ```
 
-По умолчанию клиент работает в mock-режиме и не требует запущенного бэкенда. Для подключения API создайте `.env.local`:
+По умолчанию клиент подключён к backend через Vite proxy (`http://localhost:8080`). Для автономной разработки можно создать `.env.local` и включить mock-режим:
 
 ```dotenv
-VITE_API_MODE=live
-VITE_API_URL=http://localhost:8080
+VITE_API_MODE=mock
+VITE_API_URL=
 VITE_API_TIMEOUT_MS=15000
 VITE_ENABLE_INCIDENT_STREAM=false
-VITE_ENABLE_USER_MUTATIONS=false
 ```
 
-До начала интеграции оставляйте `VITE_API_MODE=mock`. Подробный порядок подключения и известные расхождения контракта описаны в [BACKEND_INTEGRATION.md](./BACKEND_INTEGRATION.md).
+Подключённые методы и порядок совместного запуска описаны в [BACKEND_INTEGRATION.md](./BACKEND_INTEGRATION.md).
 
 ## Демо-пользователи
 

@@ -1,4 +1,4 @@
-import { accessTokenStore, apiRuntime } from './runtime'
+import { accessTokenStore, apiRuntime, CURRENT_USER_KEY } from './runtime'
 
 interface ApiErrorBody {
   error?: string
@@ -65,6 +65,11 @@ export class HttpClient {
 
       if (!response.ok) {
         const body = await readErrorBody(response)
+        if (response.status === 401 && token) {
+          accessTokenStore.clear()
+          localStorage.removeItem(CURRENT_USER_KEY)
+          window.dispatchEvent(new Event('lct:unauthorized'))
+        }
         throw new ApiError(body?.error ?? body?.message ?? statusMessages[response.status] ?? `Ошибка API: ${response.status}`, response.status, 'http', body)
       }
       if (response.status === 204) return undefined as T

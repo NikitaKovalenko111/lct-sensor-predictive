@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { api } from '../api/client'
+import { createIncidentStream } from '../api/incidentStream'
 import type { Incident, IncidentDecisionType, InfrastructureObject, Prediction, WorkOrderPriority } from '../types/api'
 
 interface DataContextValue {
@@ -42,6 +43,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => { void refresh() }, [refresh])
+
+  useEffect(() => {
+    const stream = createIncidentStream({
+      onIncident: (incident) => setIncidents((current) => {
+        const exists = current.some((item) => item.incident_id === incident.incident_id)
+        return exists
+          ? current.map((item) => item.incident_id === incident.incident_id ? incident : item)
+          : [incident, ...current]
+      }),
+    })
+    void stream.connect()
+    return stream.close
+  }, [])
 
   const value = useMemo<DataContextValue>(() => ({
     incidents, predictions, objects, loading, error, refresh,

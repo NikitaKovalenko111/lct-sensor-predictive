@@ -59,7 +59,7 @@ func (m *Security) AuditMutation(action, resource string, next http.HandlerFunc)
 			return
 		}
 		resourceID := firstNonEmpty(
-			r.PathValue("incident_id"), r.PathValue("object_id"), r.PathValue("import_id"),
+			r.PathValue("incident_id"), r.PathValue("object_id"), r.PathValue("import_id"), r.PathValue("user_id"),
 		)
 		ctx, cancel := context.WithTimeout(context.Background(), m.auditLimit)
 		defer cancel()

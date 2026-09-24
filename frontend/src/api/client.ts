@@ -291,11 +291,9 @@ class LiveApi implements PredictiveApi {
   listUsers() { return httpClient.request<Page<User>>('/api/v1/users') }
   createUser(payload: { username: string; password: string; role: Role }) { return httpClient.request<User>('/api/v1/users', { method: 'POST', body: JSON.stringify(payload) }) }
   updateUserRole(userId: string, role: Role) {
-    if (!apiRuntime.userMutationsEnabled) throw new ApiError('Backend пока не предоставляет изменение роли пользователя.', 501, 'contract')
     return httpClient.request<User>(`/api/v1/users/${userId}`, { method: 'PATCH', body: JSON.stringify({ role }) })
   }
   deleteUser(userId: string) {
-    if (!apiRuntime.userMutationsEnabled) throw new ApiError('Backend пока не предоставляет удаление пользователя.', 501, 'contract')
     return httpClient.request<void>(`/api/v1/users/${userId}`, { method: 'DELETE' })
   }
   listAudit() { return httpClient.request<Page<AuditEntry>>('/api/v1/audit-logs') }

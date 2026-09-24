@@ -12,31 +12,34 @@ export function createIncidentStream(handlers: IncidentStreamHandlers) {
 
   const connect = async () => {
     if (!apiRuntime.incidentStreamEnabled) return
-    const token = accessTokenStore.get()
-    try {
-      const response = await fetch(`${apiRuntime.baseUrl}/api/v1/incidents/stream`, {
-        headers: { Accept: 'text/event-stream', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        signal: controller.signal,
-      })
-      if (!response.ok || !response.body) throw new Error(`Поток инцидентов недоступен: ${response.status}`)
-
-      const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
-      let buffer = ''
-      while (!controller.signal.aborted) {
-        const { value, done } = await reader.read()
-        if (done) break
-        buffer += value
-        const events = buffer.split('\n\n')
-        buffer = events.pop() ?? ''
-        events.forEach((chunk) => {
-          const event = chunk.match(/^event:\s*(.+)$/m)?.[1]
-          const data = chunk.match(/^data:\s*(.+)$/m)?.[1]
-          if (event === 'ready') handlers.onReady?.()
-          if (event === 'incident' && data) handlers.onIncident(JSON.parse(data) as Incident)
+    while (!controller.signal.aborted) {
+      const token = accessTokenStore.get()
+      try {
+        const response = await fetch(`${apiRuntime.baseUrl}/api/v1/incidents/stream`, {
+          headers: { Accept: 'text/event-stream', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          signal: controller.signal,
         })
+        if (!response.ok || !response.body) throw new Error(`Поток инцидентов недоступен: ${response.status}`)
+
+        const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
+        let buffer = ''
+        while (!controller.signal.aborted) {
+          const { value, done } = await reader.read()
+          if (done) break
+          buffer += value
+          const events = buffer.split('\n\n')
+          buffer = events.pop() ?? ''
+          events.forEach((chunk) => {
+            const event = chunk.match(/^event:\s*(.+)$/m)?.[1]
+            const data = chunk.match(/^data:\s*(.+)$/m)?.[1]
+            if (event === 'ready') handlers.onReady?.()
+            if (event === 'incident' && data) handlers.onIncident(JSON.parse(data) as Incident)
+          })
+        }
+      } catch (cause) {
+        if (!controller.signal.aborted) handlers.onError?.(cause instanceof Error ? cause : new Error('Ошибка потока инцидентов'))
       }
-    } catch (cause) {
-      if (!controller.signal.aborted) handlers.onError?.(cause instanceof Error ? cause : new Error('Ошибка потока инцидентов'))
+      if (!controller.signal.aborted) await new Promise((resolve) => window.setTimeout(resolve, 3_000))
     }
   }
 

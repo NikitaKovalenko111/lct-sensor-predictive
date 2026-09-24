@@ -1,19 +1,23 @@
 import { FileClock, Plus, ServerCog, ShieldCheck, Trash2, Users, X } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
 import { api } from '../api/client'
+import { apiRuntime } from '../api/runtime'
 import { PageHeader } from '../components/common/PageHeader'
+import { useAuth } from '../context/AuthContext'
 import { formatFullDateTime, roleLabel } from '../lib/format'
-import type { AuditEntry, Role, User } from '../types/api'
+import type { AuditEntry, BackendStatus, Role, User } from '../types/api'
 
 const roles: Role[] = ['dispatcher', 'analyst', 'admin']
 
 export function AdminPage() {
+  const { user: currentUser } = useAuth()
   const [tab, setTab] = useState<'users' | 'audit' | 'system'>('users')
   const [users, setUsers] = useState<User[]>([])
   const [audit, setAudit] = useState<AuditEntry[]>([])
   const [modalOpen, setModalOpen] = useState(false)
   const [error, setError] = useState('')
   const [busyUserId, setBusyUserId] = useState('')
+  const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null)
 
   const load = async () => {
     const [userPage, auditPage] = await Promise.all([api.listUsers(), api.listAudit()])
@@ -22,6 +26,10 @@ export function AdminPage() {
   }
 
   useEffect(() => { void load() }, [])
+  useEffect(() => {
+    if (tab !== 'system') return
+    void api.getBackendStatus().then(setBackendStatus).catch(() => setBackendStatus({ live: false, ready: false }))
+  }, [tab])
 
   const changeRole = async (user: User, role: Role) => {
     setError('')
@@ -74,12 +82,12 @@ export function AdminPage() {
             {users.map((user) => (
               <div className="compact-table__row" key={user.user_id}>
                 <strong>{user.username}</strong>
-                <select className="role-select" value={user.role} disabled={busyUserId === user.user_id} onChange={(event) => void changeRole(user, event.target.value as Role)} aria-label={`Роль пользователя ${user.username}`}>
+                <select className="role-select" value={user.role} disabled={busyUserId === user.user_id || currentUser?.user_id === user.user_id} onChange={(event) => void changeRole(user, event.target.value as Role)} aria-label={`Роль пользователя ${user.username}`} title={currentUser?.user_id === user.user_id ? 'Нельзя изменить собственную роль' : undefined}>
                   {roles.map((role) => <option key={role} value={role}>{roleLabel[role]}</option>)}
                 </select>
                 <span className={user.active ? 'table-normal' : 'table-alarm'}>{user.active ? 'Активен' : 'Отключён'}</span>
                 <span>{user.last_login_at ? formatFullDateTime(user.last_login_at) : 'Ещё не входил'}</span>
-                <button className="delete-user-button" disabled={user.username === 'admin' || busyUserId === user.user_id} onClick={() => void removeUser(user)} title={user.username === 'admin' ? 'Системного администратора удалить нельзя' : 'Удалить пользователя'}><Trash2 size={17} />Удалить</button>
+                <button className="delete-user-button" disabled={currentUser?.user_id === user.user_id || busyUserId === user.user_id} onClick={() => void removeUser(user)} title={currentUser?.user_id === user.user_id ? 'Нельзя удалить текущего пользователя' : 'Удалить пользователя'}><Trash2 size={17} />Удалить</button>
               </div>
             ))}
           </div>
@@ -97,8 +105,8 @@ export function AdminPage() {
 
       {tab === 'system' && (
         <section className="system-grid">
-          <article className="panel system-card"><span className="system-card__icon"><ShieldCheck size={23} /></span><div><p className="eyebrow">Режим клиента</p><h3>{import.meta.env.VITE_API_MODE === 'live' ? 'Подключён к API' : 'Демонстрационные данные'}</h3><p>{import.meta.env.VITE_API_MODE === 'live' ? 'Запросы направляются в backend.' : 'Интерфейс работает автономно. Контракты совпадают с OpenAPI.'}</p></div><b className="table-normal">Готов</b></article>
-          <article className="panel system-card"><span className="system-card__icon"><ServerCog size={23} /></span><div><p className="eyebrow">Поток инцидентов</p><h3>Server-Sent Events</h3><p>В live-режиме защищённый поток подключается через fetch с Bearer-токеном.</p></div><b>Ожидает API</b></article>
+          <article className="panel system-card"><span className="system-card__icon"><ShieldCheck size={23} /></span><div><p className="eyebrow">Backend API</p><h3>{apiRuntime.mode === 'live' ? 'Подключён к API' : 'Демонстрационные данные'}</h3><p>{apiRuntime.mode === 'live' ? `Готовность зависимостей: ${backendStatus?.ready ? 'подтверждена' : 'не подтверждена'}.` : 'Интерфейс работает автономно.'}</p></div><b className={backendStatus?.live || apiRuntime.mode === 'mock' ? 'table-normal' : 'table-alarm'}>{backendStatus === null ? 'Проверка' : backendStatus.live ? 'Доступен' : 'Недоступен'}</b></article>
+          <article className="panel system-card"><span className="system-card__icon"><ServerCog size={23} /></span><div><p className="eyebrow">Поток инцидентов</p><h3>Server-Sent Events</h3><p>Защищённый поток использует Bearer-токен и автоматически переподключается.</p></div><b className={apiRuntime.incidentStreamEnabled ? 'table-normal' : ''}>{apiRuntime.incidentStreamEnabled ? 'Включён' : 'Выключен'}</b></article>
         </section>
       )}
 
@@ -108,6 +116,17 @@ export function AdminPage() {
 }
 
 const auditLabels: Record<string, string> = {
+  'incident.assign': 'Назначен ответственный',
+  'incident.decide': 'Решение по инциденту',
+  'incident.resolve': 'Инцидент закрыт',
+  'work_order.upsert_draft': 'Черновик заявки обновлён',
+  'prediction.request': 'Запрошен прогноз',
+  'sensor_event.publish': 'Событие датчика опубликовано',
+  'user.create': 'Пользователь создан',
+  'user.role.update': 'Роль пользователя изменена',
+  'user.delete': 'Пользователь удалён',
+  'auth.login.succeeded': 'Успешный вход',
+  'auth.login.failed': 'Ошибка входа',
   'incident.decision.created': 'Решение по инциденту',
   'incident.assigned': 'Назначен ответственный',
   'auth.login.success': 'Успешный вход',

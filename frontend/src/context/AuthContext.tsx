@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { api } from '../api/client'
+import { ApiError } from '../api/http'
 import { accessTokenStore, CURRENT_USER_KEY } from '../api/runtime'
 import type { User } from '../types/api'
 
@@ -17,10 +18,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const saved = localStorage.getItem(CURRENT_USER_KEY)
+    const token = accessTokenStore.get()
+    let savedUser: User | null = null
     if (saved) {
-      try { setUser(JSON.parse(saved) as User) } catch { localStorage.removeItem(CURRENT_USER_KEY) }
+      try { savedUser = JSON.parse(saved) as User } catch { localStorage.removeItem(CURRENT_USER_KEY) }
     }
-    setLoading(false)
+    if (!token || !savedUser) {
+      accessTokenStore.clear()
+      setLoading(false)
+      return
+    }
+
+    let disposed = false
+    void api.getCurrentUser().then((identity) => {
+      if (disposed || !savedUser) return
+      const verifiedUser = { ...savedUser, user_id: identity.user_id, username: identity.username, role: identity.role }
+      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(verifiedUser))
+      setUser(verifiedUser)
+    }).catch((cause: unknown) => {
+      if (disposed) return
+      if (!(cause instanceof ApiError) || cause.status !== 401) setUser(savedUser)
+    }).finally(() => { if (!disposed) setLoading(false) })
+
+    return () => {
+      disposed = true
+    }
+  }, [])
+
+  useEffect(() => {
+    const unauthorized = () => setUser(null)
+    window.addEventListener('lct:unauthorized', unauthorized)
+    return () => window.removeEventListener('lct:unauthorized', unauthorized)
   }, [])
 
   const value = useMemo<AuthContextValue>(() => ({

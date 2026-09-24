@@ -20,6 +20,7 @@ var (
 	ErrInactiveUser       = errors.New("user is inactive")
 	ErrInvalidToken       = errors.New("invalid access token")
 	ErrUsernameExists     = errors.New("username already exists")
+	ErrUserNotFound       = errors.New("user not found")
 )
 
 type User struct {

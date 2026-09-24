@@ -20,6 +20,12 @@ func (s *Server) registerAuthRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/users", s.security.RequireRoles(
 		s.security.AuditMutation("user.create", "user", s.createUser), auth.RoleAdmin,
 	))
+	mux.HandleFunc("PATCH /api/v1/users/{user_id}", s.security.RequireRoles(
+		s.security.AuditMutation("user.role.update", "user", s.updateUserRole), auth.RoleAdmin,
+	))
+	mux.HandleFunc("DELETE /api/v1/users/{user_id}", s.security.RequireRoles(
+		s.security.AuditMutation("user.delete", "user", s.deleteUser), auth.RoleAdmin,
+	))
 	mux.HandleFunc("GET /api/v1/audit-logs", s.security.RequireRoles(s.listAuditLogs, auth.RoleAdmin))
 }
 
@@ -55,6 +61,47 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, user)
+}
+
+func (s *Server) updateUserRole(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Role string `json:"role"`
+	}
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	claims, _ := auth.ClaimsFromContext(r.Context())
+	if claims.Subject == r.PathValue("user_id") {
+		writeError(w, http.StatusBadRequest, "current user role cannot be changed")
+		return
+	}
+	user, err := s.authRepository.UpdateUserRole(r.Context(), r.PathValue("user_id"), request.Role)
+	if errors.Is(err, auth.ErrUserNotFound) {
+		writeError(w, http.StatusNotFound, "user not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, user)
+}
+
+func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.ClaimsFromContext(r.Context())
+	if claims.Subject == r.PathValue("user_id") {
+		writeError(w, http.StatusBadRequest, "current user cannot be deleted")
+		return
+	}
+	if err := s.authRepository.DeleteUser(r.Context(), r.PathValue("user_id")); errors.Is(err, auth.ErrUserNotFound) {
+		writeError(w, http.StatusNotFound, "user not found")
+		return
+	} else if err != nil {
+		s.logger.Error("delete user", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to delete user")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {

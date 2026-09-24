@@ -19,12 +19,17 @@ JWT_ISSUER=sensor-predictive-backend
 JWT_ACCESS_TTL=1h
 BOOTSTRAP_ADMIN_USERNAME=admin
 BOOTSTRAP_ADMIN_PASSWORD=replace-with-at-least-12-characters
+BOOTSTRAP_DISPATCHER_USERNAME=dispatcher
+BOOTSTRAP_DISPATCHER_PASSWORD=replace-with-at-least-12-characters
+BOOTSTRAP_ANALYST_USERNAME=analyst
+BOOTSTRAP_ANALYST_PASSWORD=replace-with-at-least-12-characters
 ```
 
-The bootstrap account is inserted only when its normalized username does not already
-exist. Its password is not overwritten on later restarts. Remove
-`BOOTSTRAP_ADMIN_PASSWORD` from the runtime environment after the first successful
-startup.
+Bootstrap accounts are inserted only when their normalized usernames do not already
+exist. Passwords are not overwritten on later restarts. Remove the bootstrap password
+variables from the runtime environment after the first successful startup. The Docker
+Compose defaults match the three test accounts displayed by the frontend and are meant
+for local demonstration only.
 
 Passwords are stored as Argon2id hashes with random salts. JWT access tokens use
 HS256, expire after the configured TTL, and must be sent as:

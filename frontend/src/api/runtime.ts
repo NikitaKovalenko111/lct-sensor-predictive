@@ -8,11 +8,10 @@ const parseTimeout = (value: string | undefined) => {
 }
 
 export const apiRuntime = {
-  mode: import.meta.env.VITE_API_MODE === 'live' ? 'live' : 'mock',
+  mode: import.meta.env.VITE_API_MODE === 'mock' ? 'mock' : 'live',
   baseUrl: normalizeBaseUrl(import.meta.env.VITE_API_URL),
   timeoutMs: parseTimeout(import.meta.env.VITE_API_TIMEOUT_MS),
-  incidentStreamEnabled: import.meta.env.VITE_ENABLE_INCIDENT_STREAM === 'true',
-  userMutationsEnabled: import.meta.env.VITE_ENABLE_USER_MUTATIONS === 'true',
+  incidentStreamEnabled: import.meta.env.VITE_ENABLE_INCIDENT_STREAM !== 'false',
 } as const
 
 export const accessTokenStore = {

@@ -22,6 +22,10 @@ After startup:
 - PostgreSQL: `localhost:5432`
 - Kafka from the host: `localhost:29092`
 
+The local Docker Compose profile creates the frontend demo accounts `admin`,
+`dispatcher`, and `analyst`. Their development-only passwords are shown on the login
+screen and can be overridden through the corresponding `BOOTSTRAP_*` variables.
+
 The `demo` profile publishes one synthetic temperature event every five seconds.
 The `mock` profile consumes these events and publishes predictions using the same
 contract expected from the Python model.
