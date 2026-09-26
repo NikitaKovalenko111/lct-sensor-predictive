@@ -1,0 +1,702 @@
+openapi: 3.0.3
+info:
+  title: Sensor Predictive Backend API
+  version: 0.1.0
+  description: Backend MVP for incident prediction in engineering collectors.
+servers:
+  - url: http://localhost:8080
+security:
+  - bearerAuth: []
+paths:
+  /health/live:
+    get:
+      security: []
+      tags: [System]
+      summary: Process liveness probe
+      responses:
+        "200":
+          description: Process is alive
+  /health/ready:
+    get:
+      security: []
+      tags: [System]
+      summary: PostgreSQL and Kafka readiness probe
+      responses:
+        "200":
+          description: Dependencies are ready
+        "503":
+          description: At least one dependency is unavailable
+  /api/v1/auth/login:
+    post:
+      security: []
+      tags: [Authentication]
+      summary: Authenticate through the configured identity provider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string, format: password, minLength: 12 }
+      responses:
+        "200":
+          description: JWT access token and current user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoginResponse" }
+        "401": { description: Invalid username or password }
+  /api/v1/auth/me:
+    get:
+      tags: [Authentication]
+      summary: Get identity encoded in the current access token
+      responses:
+        "200":
+          description: Current identity
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id: { type: string, format: uuid }
+                  username: { type: string }
+                  role: { $ref: "#/components/schemas/Role" }
+        "401": { description: Missing, invalid, or expired token }
+  /api/v1/users:
+    get:
+      tags: [Administration]
+      summary: List local users (admin only)
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: User page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/User" }
+        "403": { description: Admin role is required }
+    post:
+      tags: [Administration]
+      summary: Create a local user (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password, role]
+              properties:
+                username: { type: string }
+                password: { type: string, format: password, minLength: 12 }
+                role: { $ref: "#/components/schemas/Role" }
+      responses:
+        "201":
+          description: Created user without password data
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { description: Invalid role or password }
+        "409": { description: Username already exists }
+  /api/v1/audit-logs:
+    get:
+      tags: [Administration]
+      summary: List security and mutation audit entries (admin only)
+      parameters:
+        - in: query
+          name: username
+          schema: { type: string }
+        - in: query
+          name: action
+          schema: { type: string }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Audit page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/AuditEntry" }
+        "403": { description: Admin role is required }
+  /api/v1/sensor-events:
+    get:
+      tags: [Telemetry]
+      summary: List stored sensor events
+      parameters:
+        - in: query
+          name: object_id
+          schema: { type: integer, format: int64 }
+        - in: query
+          name: channel_id
+          schema: { type: string }
+        - in: query
+          name: alarm_only
+          schema: { type: boolean, default: false }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Sensor event page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/SensorEvent" }
+    post:
+      tags: [Telemetry]
+      summary: Publish one sensor event to Kafka
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SensorEvent"
+      responses:
+        "202":
+          description: Event accepted by Kafka
+        "400":
+          description: Invalid event
+        "503":
+          description: Kafka is unavailable
+  /api/v1/predictions:
+    get:
+      tags: [Predictions]
+      summary: List predictions
+      parameters:
+        - in: query
+          name: object_id
+          schema: { type: integer, format: int64 }
+        - in: query
+          name: prediction_type
+          schema:
+            type: string
+            enum: [fire_risk, nsd_event, nsd_risk, equipment_failure]
+        - in: query
+          name: risk_level
+          schema:
+            type: string
+            enum: [low, medium, high, critical]
+        - in: query
+          name: alert_only
+          description: Return only predictions that crossed the model-specific threshold.
+          schema: { type: boolean, default: false }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50, maximum: 200 }
+        - in: query
+          name: offset
+          schema: { type: integer, default: 0 }
+      responses:
+        "200":
+          description: Prediction page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Prediction"
+  /api/v1/predictions/request:
+    post:
+      tags: [Predictions]
+      summary: Request an on-demand prediction from the Python model service
+      description: |
+        Synchronously forwards the request to `POST /predict` in the Python service.
+        The Python service must also publish the returned predictions to
+        `predictions.v1` so they enter the normal persistence and incident pipeline.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OnDemandPredictionRequest" }
+      responses:
+        "200":
+          description: Predictions calculated by the model service
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OnDemandPredictionResponse" }
+        "400": { description: Invalid object or prediction type }
+        "404": { description: Object not found }
+        "502": { description: Model service returned an invalid response }
+        "503": { description: Model service is unavailable }
+  /api/v1/incidents:
+    get:
+      tags: [Incidents]
+      summary: List dispatcher incidents created from high-risk predictions
+      parameters:
+        - in: query
+          name: object_id
+          schema: { type: integer, format: int64 }
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [new, in_review, resolved, dismissed]
+        - in: query
+          name: risk_level
+          schema:
+            type: string
+            enum: [low, medium, high, critical]
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Incident page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Incident" }
+  /api/v1/incidents/stream:
+    get:
+      tags: [Incidents]
+      summary: Subscribe to incident changes using Server-Sent Events
+      description: Sends a ready event, incident events, and keep-alive comments every 15 seconds.
+      responses:
+        "200":
+          description: Long-lived SSE stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+  /api/v1/incidents/{incident_id}:
+    get:
+      tags: [Incidents]
+      summary: Get an incident with decisions and its work-order draft
+      parameters:
+        - $ref: "#/components/parameters/IncidentID"
+      responses:
+        "200":
+          description: Incident details
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IncidentDetail" }
+        "404": { description: Incident not found }
+  /api/v1/incidents/{incident_id}/assignment:
+    patch:
+      tags: [Incidents]
+      summary: Assign an incident to a dispatcher
+      parameters:
+        - $ref: "#/components/parameters/IncidentID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [assigned_to]
+              properties:
+                assigned_to: { type: string }
+      responses:
+        "200":
+          description: Updated incident
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Incident" }
+        "400": { description: Invalid request }
+        "404": { description: Incident not found or already closed }
+  /api/v1/incidents/{incident_id}/decisions:
+    post:
+      tags: [Incidents]
+      summary: Record a dispatcher decision
+      parameters:
+        - $ref: "#/components/parameters/IncidentID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision, actor]
+              properties:
+                decision:
+                  type: string
+                  enum: [confirmed, false_alarm, monitor, dispatch_crew]
+                actor: { type: string }
+                comment: { type: string }
+      responses:
+        "201":
+          description: Recorded decision
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IncidentDecision" }
+        "400": { description: Invalid request }
+        "404": { description: Incident not found or already closed }
+  /api/v1/incidents/{incident_id}/resolve:
+    post:
+      tags: [Incidents]
+      summary: Mark an incident as resolved
+      parameters:
+        - $ref: "#/components/parameters/IncidentID"
+      responses:
+        "200":
+          description: Resolved incident
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Incident" }
+        "404": { description: Incident not found or already closed }
+  /api/v1/incidents/{incident_id}/work-order-draft:
+    post:
+      tags: [Incidents]
+      summary: Create or update a mock work-order draft
+      parameters:
+        - $ref: "#/components/parameters/IncidentID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                description: { type: string }
+                priority:
+                  type: string
+                  enum: [normal, high, emergency]
+      responses:
+        "201":
+          description: Work-order draft
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkOrderDraft" }
+        "400": { description: Invalid request }
+        "404": { description: Incident not found }
+  /api/v1/objects:
+    get:
+      tags: [Objects]
+      summary: List infrastructure objects
+      parameters:
+        - in: query
+          name: parent_id
+          schema: { type: integer, format: int64 }
+        - in: query
+          name: object_type
+          schema: { type: string }
+        - in: query
+          name: search
+          schema: { type: string }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Object page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Object" }
+  /api/v1/objects/{object_id}:
+    get:
+      tags: [Objects]
+      summary: Get one infrastructure object
+      parameters:
+        - in: path
+          name: object_id
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Object details
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Object" }
+        "404": { description: Object not found }
+  /api/v1/channels:
+    get:
+      tags: [Objects]
+      summary: List sensor channels
+      parameters:
+        - in: query
+          name: object_id
+          schema: { type: integer, format: int64 }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Channel page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Channel" }
+  /api/v1/map/objects.geojson:
+    get:
+      tags: [Objects]
+      summary: Get schematic objects as a GeoJSON FeatureCollection
+      description: All returned geometries are synthetic and are not real collector coordinates.
+      parameters:
+        - in: query
+          name: object_type
+          schema: { type: string }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: GeoJSON FeatureCollection
+          content:
+            application/geo+json:
+              schema: { type: object, additionalProperties: true }
+  /api/v1/imports:
+    get:
+      tags: [Imports]
+      summary: List CSV import jobs
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Import job page
+  /api/v1/imports/{import_id}:
+    get:
+      tags: [Imports]
+      summary: Get CSV import progress
+      parameters:
+        - in: path
+          name: import_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Import job
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImportJob" }
+        "404": { description: Import job not found }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Limit:
+      in: query
+      name: limit
+      schema: { type: integer, default: 100, maximum: 500 }
+    Offset:
+      in: query
+      name: offset
+      schema: { type: integer, default: 0, minimum: 0 }
+    IncidentID:
+      in: path
+      name: incident_id
+      required: true
+      schema: { type: string, format: uuid }
+  schemas:
+    Role:
+      type: string
+      enum: [admin, dispatcher, analyst, manager]
+    User:
+      type: object
+      required: [user_id, username, role, active, created_at]
+      properties:
+        user_id: { type: string, format: uuid }
+        username: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        active: { type: boolean }
+        created_at: { type: string, format: date-time }
+        last_login_at: { type: string, format: date-time, nullable: true }
+    LoginResponse:
+      type: object
+      required: [access_token, token_type, expires_at, user]
+      properties:
+        access_token: { type: string }
+        token_type: { type: string, enum: [Bearer] }
+        expires_at: { type: string, format: date-time }
+        user: { $ref: "#/components/schemas/User" }
+    AuditEntry:
+      type: object
+      required: [audit_id, username, action, resource_type, method, path, details, created_at]
+      properties:
+        audit_id: { type: integer, format: int64 }
+        user_id: { type: string, format: uuid }
+        username: { type: string }
+        action: { type: string }
+        resource_type: { type: string }
+        resource_id: { type: string }
+        method: { type: string }
+        path: { type: string }
+        remote_ip: { type: string }
+        details: { type: object, additionalProperties: true }
+        created_at: { type: string, format: date-time }
+    SensorEvent:
+      type: object
+      required: [event_id, object_id, channel_id, sensor_type, engineering_system, value, is_alarm, timestamp]
+      properties:
+        schema_version: { type: integer, default: 1 }
+        event_id: { type: string }
+        object_id: { type: integer, format: int64 }
+        channel_id: { type: string }
+        sensor_type: { type: string }
+        engineering_system: { type: string }
+        value: { type: string }
+        is_alarm: { type: boolean }
+        timestamp: { type: string, format: date-time }
+    Prediction:
+      type: object
+      required: [object_id, prediction_type, risk_score, risk_level, predicted_at, features_used, model_version]
+      properties:
+        schema_version: { type: integer, default: 1 }
+        prediction_id: { type: string, format: uuid }
+        object_id: { type: integer, format: int64 }
+        prediction_type:
+          type: string
+          enum: [fire_risk, nsd_event, nsd_risk, equipment_failure]
+        risk_score: { type: number, format: double, minimum: 0, maximum: 1 }
+        risk_level:
+          type: string
+          enum: [low, medium, high, critical]
+        is_alert:
+          type: boolean
+          nullable: true
+          description: Model-specific threshold decision; absent for legacy producers.
+        predicted_at: { type: string, format: date-time }
+        features_used:
+          type: object
+          additionalProperties: true
+        model_version: { type: string }
+    OnDemandPredictionRequest:
+      type: object
+      required: [object_id]
+      properties:
+        object_id: { type: integer, format: int64, minimum: 1 }
+        prediction_types:
+          type: array
+          uniqueItems: true
+          description: Empty or omitted means all model-supported on-demand prediction types.
+          items:
+            type: string
+            enum: [fire_risk, nsd_event, nsd_risk, equipment_failure]
+    OnDemandPredictionResponse:
+      type: object
+      required: [predictions]
+      properties:
+        predictions:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/Prediction" }
+    Incident:
+      type: object
+      required:
+        - incident_id
+        - prediction_id
+        - object_id
+        - incident_type
+        - risk_score
+        - risk_level
+        - status
+        - title
+        - created_at
+        - updated_at
+      properties:
+        incident_id: { type: string, format: uuid }
+        prediction_id: { type: string, format: uuid }
+        object_id: { type: integer, format: int64 }
+        incident_type:
+          type: string
+          enum: [fire_risk, nsd_event, nsd_risk, equipment_failure]
+        risk_score: { type: number, format: double, minimum: 0, maximum: 1 }
+        risk_level: { type: string, enum: [low, medium, high, critical] }
+        status: { type: string, enum: [new, in_review, resolved, dismissed] }
+        title: { type: string }
+        description: { type: string }
+        assigned_to: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        resolved_at: { type: string, format: date-time, nullable: true }
+    IncidentDecision:
+      type: object
+      required: [decision_id, incident_id, decision, actor, comment, created_at]
+      properties:
+        decision_id: { type: string, format: uuid }
+        incident_id: { type: string, format: uuid }
+        decision:
+          type: string
+          enum: [confirmed, false_alarm, monitor, dispatch_crew]
+        actor: { type: string }
+        comment: { type: string }
+        created_at: { type: string, format: date-time }
+    WorkOrderDraft:
+      type: object
+      required: [work_order_id, incident_id, title, description, priority, status, created_at, updated_at]
+      properties:
+        work_order_id: { type: string, format: uuid }
+        incident_id: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: string }
+        priority: { type: string, enum: [normal, high, emergency] }
+        status: { type: string, enum: [draft] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    IncidentDetail:
+      allOf:
+        - $ref: "#/components/schemas/Incident"
+        - type: object
+          required: [decisions]
+          properties:
+            decisions:
+              type: array
+              items: { $ref: "#/components/schemas/IncidentDecision" }
+            work_order:
+              allOf:
+                - $ref: "#/components/schemas/WorkOrderDraft"
+              nullable: true
+    Object:
+      type: object
+      required: [object_id, hierarchy_level, object_type, dispatcher_name]
+      properties:
+        object_id: { type: integer, format: int64 }
+        parent_id: { type: integer, format: int64, nullable: true }
+        hierarchy_level: { type: integer }
+        object_type: { type: string }
+        dispatcher_name: { type: string }
+        geometry:
+          type: object
+          additionalProperties: true
+    Channel:
+      type: object
+      required: [channel_id, object_id, sensor_type]
+      properties:
+        channel_id: { type: string }
+        object_id: { type: integer, format: int64 }
+        sensor_type: { type: string }
+        engineering_system: { type: string }
+        engineering_system_tag: { type: string }
+        sensor_name: { type: string }
+    ImportJob:
+      type: object
+      properties:
+        import_id: { type: string, format: uuid }
+        import_kind: { type: string, enum: [objects, channels, events] }
+        file_name: { type: string }
+        status: { type: string, enum: [pending, running, completed, failed] }
+        processed_rows: { type: integer, format: int64 }
+        failed_rows: { type: integer, format: int64 }
+        error_message: { type: string }
+        started_at: { type: string, format: date-time, nullable: true }
+        finished_at: { type: string, format: date-time, nullable: true }
