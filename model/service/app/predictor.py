@@ -13,11 +13,15 @@ class Predictor:
 
         self.nsd       = joblib.load(m.nsd_model_path)
         self.nsd_ft    = joblib.load(m.nsd_feat_path)
-        self.nsd_thr   = m.nsd_threshold
+        self.nsd_thr   = joblib.load(m.nsd_threshold)
 
         self.risk      = joblib.load(m.risk_model_path)
         self.risk_thr  = joblib.load(m.risk_thr_path)
         self.risk_ft   = joblib.load(m.risk_feat_path)
+
+        self.fault     = joblib.load(m.fault_model_path)
+        self.fault_thr = joblib.load(m.fault_thr_path)
+        self.fault_ft  = joblib.load(m.fault_feat_path)
 
     @staticmethod
     def _vec(fdict: dict, feats: list) -> np.ndarray:
@@ -50,3 +54,7 @@ class Predictor:
     def nsd_risk(self, obj, fdict):
         p = self.risk.predict_proba(self._vec(fdict, self.risk_ft))[0, 1]
         return self._make(obj, "nsd_risk", p, self.risk_thr, fdict, self.risk_ft)
+
+    def fault_risk(self, obj, fdict):
+        p = self.fault.predict_proba(self._vec(fdict, self.fault_ft))[0, 1]
+        return self._make(obj, "fault_risk", p, self.fault_thr, fdict, self.fault_ft)

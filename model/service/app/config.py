@@ -18,13 +18,18 @@ class Settings(BaseSettings):
     fire_thr_path: Path    = PROJECT_ROOT / "models/fire_risk/saved/fire_risk_threshold.joblib"
     fire_feat_path: Path   = PROJECT_ROOT / "models/fire_risk/saved/fire_risk_features.joblib"
 
-    nsd_model_path: Path   = PROJECT_ROOT / "models/unac/saved/nsd_best_model.joblib"
-    nsd_feat_path: Path    = PROJECT_ROOT / "models/unac/saved/nsd_best_features.joblib"
-    nsd_threshold: float   = 0.3053   # из compare_models (макс F1); лучше сохранить joblib-ом
+    nsd_model_path: Path   = PROJECT_ROOT / "models/unac/saved/nsd_model_clean.joblib"
+    nsd_feat_path: Path    = PROJECT_ROOT / "models/unac/saved/nsd_features_clean.joblib"
+    nsd_threshold: Path   = PROJECT_ROOT / "models/unac/saved/nsd_threshold_clean.joblib"
 
     risk_model_path: Path  = PROJECT_ROOT / "models/unac/saved/nsd_risk_model.joblib"
     risk_thr_path: Path    = PROJECT_ROOT / "models/unac/saved/nsd_risk_threshold.joblib"
     risk_feat_path: Path   = PROJECT_ROOT / "models/unac/saved/nsd_risk_features.joblib"
+
+    # ← ДОБАВИТЬ: модель поломок
+    fault_model_path: Path = PROJECT_ROOT / "models/fault_risk/saved/fault_model.joblib"
+    fault_thr_path: Path   = PROJECT_ROOT / "models/fault_risk/saved/fault_threshold.joblib"
+    fault_feat_path: Path  = PROJECT_ROOT / "models/fault_risk/saved/fault_features.joblib"
 
     # Периодичность плановых прогнозов (сек)
     prediction_interval: int = 3600
@@ -53,3 +58,10 @@ FAILURE_EXCLUDED_TYPES = {"Датчик дыма"}
 OPEN_VALUE      = "Не замкнут"
 MOTION_VALUE    = "Обнаружено движение"
 OFF_GUARD_VALUE = "Снято с охраны"
+
+FAULT_TYPE_MAPPING = {
+    'Состояние насоса': 'pump',
+    'Состояние вентилятора': 'fan',
+    'ИБП': 'ups',
+    'Состояние фазы': 'phase',
+}

@@ -89,10 +89,12 @@ class ModelService:
                 df = self.fe.load_events(obj, last_ts, lookback_days=40, forward_min=0)
                 fire = self.pr.fire_risk(obj, self.fe.fire_features(df, last_ts))
                 risk = self.pr.nsd_risk(obj, self.fe.nsd_risk_features(df, last_ts.date()))
+                fault = self.pr.fault_risk(obj, self.fe.fault_features(df, last_ts.date()))
+                await self.emit(producer, fault)
                 await self.emit(producer, fire)
                 await self.emit(producer, risk)
                 log.info(f"Periodic: obj={obj} fire={fire.risk_score:.3f} "
-                         f"nsd_risk={risk.risk_score:.3f}")
+                         f"nsd_risk={risk.risk_score:.3f} fault={fault.risk_score:.3f}")
             except Exception as e:
                 log.error(f"periodic failed obj={obj}: {e}")
 

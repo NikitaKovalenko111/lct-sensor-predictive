@@ -7,6 +7,13 @@ from . import config
 
 H = timedelta(hours=1)
 
+FAULT_TYPE_MAPPING = {
+    'Состояние насоса': 'pump',
+    'Состояние вентилятора': 'fan',
+    'ИБП': 'ups',
+    'Состояние фазы': 'phase',
+}
+
 def duck_dow(ts) -> int:
     """Приводим pandas-день недели к договорённости DuckDB (0=вс)."""
     return (ts.weekday() + 1) % 7
@@ -183,4 +190,120 @@ class FeatureEngine:
         f["dow"] = duck_dow(day)
         f["month"] = day.month
         f["is_weekend"] = 1 if day.weekday() >= 5 else 0
+        return f
+
+    # ==========================================================
+    # МОДЕЛЬ 4: ПРОГНОЗ ПОЛОМОК (21 фича, на объект-день)
+    # ==========================================================
+    def fault_features(self, df: pd.DataFrame, day) -> dict:       
+        day = pd.Timestamp(day).normalize()
+        f = {}
+        
+        # === Базовые фичи из истории НСД (аналогично nsd_risk_features) ===
+        openings_ts = df.loc[
+            df["is_alarm"]
+            & df["sensor_type"].isin(config.NSD_TRIGGER_TYPES)
+            & (df["value"] == config.OPEN_VALUE), "ts"].tolist()
+        motion_ts = df.loc[self._motion_mask(df), "ts"].to_numpy()
+        offguard_ts = df.loc[df["value"] == config.OFF_GUARD_VALUE, "ts"].to_numpy()
+        
+        clean = []
+        m5 = timedelta(minutes=5)
+        h60 = timedelta(minutes=60)
+        for t in openings_ts:
+            t_np = np.datetime64(t)
+            has_motion = ((motion_ts > t_np) & (motion_ts <= t_np + m5)).any()
+            was_off = len(offguard_ts) and ((offguard_ts >= t_np - h60) & (offguard_ts < t_np)).any()
+            if has_motion and not was_off:
+                clean.append(t)
+        
+        clean = pd.to_datetime(pd.Series(clean, dtype="datetime64[ns]")) if clean \
+            else pd.Series([], dtype="datetime64[ns]")
+        
+        for d in (1, 7, 30):
+            lo, hi = day - timedelta(days=d), day
+            f[f"nsd_prev_{d}d"] = int(((clean >= lo) & (clean < hi)).sum())
+        
+        # Календарные фичи
+        f["dow"] = duck_dow(day)
+        f["month"] = day.month
+        f["is_weekend"] = 1 if day.weekday() >= 5 else 0
+        
+        # === История поломок и плановых работ ===
+        failures = self._failure_mask(df)
+        offguard = df["value"] == config.OFF_GUARD_VALUE
+        
+        for d in (7, 30):
+            f[f"failures_prev_{d}d"] = self._cnt(df, failures, day - timedelta(days=d), day)
+            f[f"off_guard_prev_{d}d"] = self._cnt(df, offguard, day - timedelta(days=d), day)
+        
+        # === Эпизоды поломок (группы с разрывом > 7 дней) ===
+        fault_events = df.loc[failures, "ts"].sort_values().tolist()
+        
+        # Группируем в эпизоды (разрыв > 7 дней)
+        episodes = []
+        if fault_events:
+            episodes.append(fault_events[0])
+            for i in range(1, len(fault_events)):
+                if (fault_events[i] - fault_events[i-1]).days > 7:
+                    episodes.append(fault_events[i])
+        
+        episodes_series = pd.to_datetime(pd.Series(episodes, dtype="datetime64[ns]")) if episodes \
+            else pd.Series([], dtype="datetime64[ns]")
+        
+        f["episodes_prev_7d"] = int(((episodes_series >= day - timedelta(days=7)) & 
+                                    (episodes_series < day)).sum())
+        f["episodes_prev_30d"] = int(((episodes_series >= day - timedelta(days=30)) & 
+                                    (episodes_series < day)).sum())
+        
+        # Свежесть последней поломки
+        if episodes:
+            last_ep = max(episodes)
+            f["days_since_last_episode"] = (day - last_ep).days
+        else:
+            f["days_since_last_episode"] = 999  # давно не было поломок
+        
+        # === Каналы и события поломок за последний день ===
+        faults_prev_1d = failures & (df["ts"] >= day - timedelta(days=1)) & (df["ts"] < day)
+        f["fault_channels_prev_1d"] = int(df.loc[faults_prev_1d, "channel_id"].nunique())
+        f["fault_events_prev_1d"] = int(faults_prev_1d.sum())
+        
+        # === Пер-типовые счётчики эпизодов за 30 дней ===
+        type_counts = {t: 0 for t in FAULT_TYPE_MAPPING.values()}
+        
+        for sensor_type, type_key in FAULT_TYPE_MAPPING.items():
+            type_failures = failures & (df["sensor_type"] == sensor_type)
+            type_fault_events = df.loc[type_failures, "ts"].sort_values().tolist()
+            
+            if not type_fault_events:
+                continue
+            
+            # Группируем в эпизоды
+            type_episodes = [type_fault_events[0]]
+            for i in range(1, len(type_fault_events)):
+                if (type_fault_events[i] - type_fault_events[i-1]).days > 7:
+                    type_episodes.append(type_fault_events[i])
+            
+            # Считаем эпизоды за последние 30 дней
+            type_episodes_series = pd.to_datetime(pd.Series(type_episodes, dtype="datetime64[ns]"))
+            recent_episodes = int(((type_episodes_series >= day - timedelta(days=30)) & 
+                                (type_episodes_series < day)).sum())
+            type_counts[type_key] = recent_episodes
+        
+        f["pump_eps_30d"] = type_counts.get('pump', 0)
+        f["fan_eps_30d"] = type_counts.get('fan', 0)
+        f["ups_eps_30d"] = type_counts.get('ups', 0)
+        f["phase_eps_30d"] = type_counts.get('phase', 0)
+        
+        # === Хроничность каналов ===
+        faults_prev_30d = failures & (df["ts"] >= day - timedelta(days=30)) & (df["ts"] < day)
+        channel_counts = df.loc[faults_prev_30d].groupby("channel_id").size()
+        
+        if len(channel_counts) > 0:
+            f["max_channel_eps_30d"] = int(channel_counts.max())
+            f["repeat_channels_30d"] = int((channel_counts >= 2).sum())
+        else:
+            f["max_channel_eps_30d"] = 0
+            f["repeat_channels_30d"] = 0
+        
         return f

@@ -33,6 +33,7 @@ FEATURES = [
     # Свежесть и хроничность (3)
     'days_since_last_episode', 'max_channel_eps_30d', 'repeat_channels_30d',
 ]
+
 TARGET = 'will_fail_next_24h'
 
 # ============================================================
