@@ -20,24 +20,31 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 }
 
 func (r *Repository) EnsureBootstrapAdmin(ctx context.Context, username, password string) error {
+	return r.EnsureBootstrapUser(ctx, username, password, RoleAdmin)
+}
+
+func (r *Repository) EnsureBootstrapUser(ctx context.Context, username, password, role string) error {
 	username = normalizeUsername(username)
 	if password == "" {
 		return nil
 	}
 	if username == "" {
-		return fmt.Errorf("bootstrap admin username is required")
+		return fmt.Errorf("bootstrap username is required")
+	}
+	if !ValidRole(role) {
+		return fmt.Errorf("invalid bootstrap role %q", role)
 	}
 	hash, err := HashPassword(password)
 	if err != nil {
-		return fmt.Errorf("hash bootstrap admin password: %w", err)
+		return fmt.Errorf("hash bootstrap password: %w", err)
 	}
 	_, err = r.pool.Exec(ctx, `
 		INSERT INTO users (username, password_hash, role)
-		VALUES ($1, $2, 'admin')
+		VALUES ($1, $2, $3)
 		ON CONFLICT (lower(username)) DO NOTHING
-	`, username, hash)
+	`, username, hash, role)
 	if err != nil {
-		return fmt.Errorf("create bootstrap admin: %w", err)
+		return fmt.Errorf("create bootstrap user: %w", err)
 	}
 	return nil
 }
@@ -100,6 +107,39 @@ func (r *Repository) ListUsers(ctx context.Context, limit, offset int) ([]User, 
 		return nil, fmt.Errorf("iterate users: %w", err)
 	}
 	return items, nil
+}
+
+func (r *Repository) UpdateUserRole(ctx context.Context, userID, role string) (User, error) {
+	if !ValidRole(role) {
+		return User{}, fmt.Errorf("invalid role %q", role)
+	}
+	var user User
+	err := r.pool.QueryRow(ctx, `
+		UPDATE users SET role = $2
+		WHERE user_id = $1::uuid
+		RETURNING user_id::text, username, role, active, created_at, last_login_at
+	`, userID, role).Scan(
+		&user.UserID, &user.Username, &user.Role, &user.Active,
+		&user.CreatedAt, &user.LastLoginAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return User{}, ErrUserNotFound
+	}
+	if err != nil {
+		return User{}, fmt.Errorf("update user role: %w", err)
+	}
+	return user, nil
+}
+
+func (r *Repository) DeleteUser(ctx context.Context, userID string) error {
+	result, err := r.pool.Exec(ctx, `DELETE FROM users WHERE user_id = $1::uuid`, userID)
+	if err != nil {
+		return fmt.Errorf("delete user: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return ErrUserNotFound
+	}
+	return nil
 }
 
 func (r *Repository) findForAuthentication(ctx context.Context, username string) (User, string, error) {

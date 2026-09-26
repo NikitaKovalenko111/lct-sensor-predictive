@@ -46,6 +46,20 @@ func main() {
 		logger.Error("create bootstrap admin", "error", err)
 		os.Exit(1)
 	}
+	bootstrapUsers := []struct {
+		username string
+		password string
+		role     string
+	}{
+		{cfg.BootstrapDispatcherUsername, cfg.BootstrapDispatcherPassword, auth.RoleDispatcher},
+		{cfg.BootstrapAnalystUsername, cfg.BootstrapAnalystPassword, auth.RoleAnalyst},
+	}
+	for _, user := range bootstrapUsers {
+		if err := authRepository.EnsureBootstrapUser(ctx, user.username, user.password, user.role); err != nil {
+			logger.Error("create bootstrap user", "username", user.username, "role", user.role, "error", err)
+			os.Exit(1)
+		}
+	}
 	identityProvider, err := auth.NewLocalProvider(authRepository)
 	if err != nil {
 		logger.Error("create identity provider", "error", err)
