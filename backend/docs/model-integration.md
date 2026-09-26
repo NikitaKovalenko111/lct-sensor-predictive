@@ -9,18 +9,15 @@ The service consumes every raw sensor event and keeps its own deduplicated proje
 in PostgreSQL schema `ml`. It retains approximately 45 days of events for feature
 calculation.
 
-It produces three prediction types:
+It produces four prediction types:
 
 - `nsd_event` after a door, hatch, or glass trigger. Processing waits for a ten-minute
   event-time window, or flushes after 15 seconds without new input;
 - `fire_risk` periodically for every object touched since the previous cycle;
 - `nsd_risk` in the same periodic cycle.
+- `equipment_failure` in the same periodic cycle.
 
-This module does not produce `equipment_failure`; that prediction must come from
-Samir's separate service using the same output topic and contract.
-
-One Python service hosts all three currently available models and uses one Kafka
-consumer group. The equipment-failure model will be integrated later.
+One Python service hosts all four models and uses one Kafka consumer group.
 
 ## Kafka and database settings
 
@@ -31,8 +28,8 @@ KAFKA_BOOTSTRAP_SERVERS=localhost:29092
 KAFKA_INPUT_TOPIC=sensor.events.v1
 KAFKA_OUTPUT_TOPIC=predictions.v1
 KAFKA_CONSUMER_GROUP=model-service.v1
-DATABASE_URL=postgresql://app:app@localhost:5432/sensor_predictive
-PREDICTION_INTERVAL=3600
+DATABASE_URL=postgresql://app:app@localhost:5433/sensor_predictive
+PREDICTION_INTERVAL=60
 ```
 
 The model consumer group must differ from `backend.telemetry.v1`: separate groups let
@@ -57,16 +54,16 @@ environment above and run:
 python -m app.main
 ```
 
-Use module mode because the current source uses relative imports. The model branch's
-Dockerfile currently starts `python main.py`, although the entry point is
-`app/main.py`; override its command with `python -m app.main` when containerizing it.
+The shared Compose file starts the service through
+`uvicorn app.main:app --host 0.0.0.0 --port 8000`. For a local process, use the
+same command from `model/service`.
 
 Do not run `mock-model` together with the real model unless duplicate independent
 predictions are desired.
 
-The `.joblib` model artifacts will be copied into the Python service image. After the
-model branch is merged, the Python and Go services will be built and started from one
-repository and one Compose project.
+The `.joblib` artifacts remain outside Git and are mounted read-only from
+`model/models` into the Python container. Python, Go and frontend are started from
+the shared Compose project.
 
 ## On-demand prediction
 
@@ -105,10 +102,9 @@ model. The Python response contract is:
 }
 ```
 
-The Python endpoint must publish the same predictions to `predictions.v1`. The HTTP
+The Python endpoint publishes the same predictions to `predictions.v1`. The HTTP
 response gives the frontend an immediate result; Kafka remains the sole path for
-durable Go persistence and incident creation. The current Python service does not yet
-expose `POST /predict`; until it is implemented, Go returns HTTP 503 for this request.
+durable Go persistence and incident creation.
 
 ## Wire compatibility
 
@@ -149,10 +145,9 @@ window. Go stores it as technical metadata and does not use it to schedule infer
 `is_alert` means the model-specific threshold was crossed and is authoritative for
 incident creation.
 
-The Python service will add a stable producer-generated UUID `prediction_id`. Until
-that is available, the field remains optional and the backend retains natural-key
-deduplication for compatibility. `model_version` is stored as diagnostic metadata and
-does not control backend behavior.
+The Python service emits a stable producer-generated UUID `prediction_id`. The field
+remains optional in Go for compatibility with legacy producers. `model_version` is
+stored as diagnostic metadata and does not control backend behavior.
 
 ## Agreed ownership and retention
 
@@ -167,9 +162,7 @@ a separate offline process.
 - Whether a new Python consumer group processes all retained history or only events
   arriving after deployment. Do not replay the full 15 GB until this is decided.
 - Python health/error signaling and its behavior for invalid Kafka records.
-- The exact input/output contract for the future equipment-failure model.
-- A live end-to-end test with the real `.joblib` artifacts after the branches and
-  Compose definitions are merged.
+- A live end-to-end test with the real `.joblib` artifacts.
 
 The current backend smoke test uses an exact captured message shape, not live
 inference.

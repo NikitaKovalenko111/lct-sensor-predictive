@@ -16,16 +16,20 @@
 
 import asyncio
 import json
+import sys
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from aiokafka import AIOKafkaProducer
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 # ============================================================================
 # НАСТРОЙКИ (должны совпадать с .env сервиса)
 # ============================================================================
-BOOTSTRAP = "localhost:9092"
-INPUT_TOPIC = "sensor_events"
-NOW = datetime.utcnow().replace(microsecond=0)
+BOOTSTRAP = "localhost:29092"
+INPUT_TOPIC = "sensor.events.v1"
+NOW = datetime.now(timezone.utc).replace(microsecond=0)
 
 # Список объектов, для которых строим историю
 OBJECTS = [9999, 8888, 7777]
@@ -201,7 +205,7 @@ async def main():
     print("     - Periodic: obj=7777 fire=0.3.. nsd_risk=...")
     print("     - Periodic: obj=8888 fire=low nsd_risk=low")
     print()
-    print("🌐 Kafka UI: http://localhost:8080 → топики sensor_events / predictions")
+    print("🌐 Kafka-топики: sensor.events.v1 / predictions.v1")
 
 
 if __name__ == "__main__":

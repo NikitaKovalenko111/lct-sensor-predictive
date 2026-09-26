@@ -88,7 +88,7 @@ export function AppLayout() {
           <div className="topbar__actions">
             <div className="notifications-wrap">
               <button className="icon-button icon-button--notification" onClick={() => setNotificationsOpen((value) => !value)} aria-label="Уведомления">
-                <Bell size={19} />{critical.length > 0 && <span>{critical.length}</span>}
+                <Bell size={19} />{critical.length > 0 && <span className="notification-count">{critical.length}</span>}
               </button>
               {notificationsOpen && (
                 <div className="notifications-popover">

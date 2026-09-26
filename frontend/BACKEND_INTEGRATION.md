@@ -1,6 +1,6 @@
 # Интеграция frontend с backend
 
-Frontend подключён к API из `backend/api/openapi.yaml`. Без переменных окружения используется live-режим, запросы `/api` и `/health` в локальной разработке проксируются Vite на `http://localhost:8080`.
+Frontend подключён к API из `backend/api/openapi.yaml`. Без переменных окружения используется live-режим, запросы `/api` и `/health` в локальной разработке проксируются Vite на `http://localhost:8083`.
 
 ## Подключённые возможности
 

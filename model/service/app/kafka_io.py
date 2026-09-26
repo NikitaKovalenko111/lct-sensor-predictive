@@ -20,3 +20,10 @@ async def create_producer() -> AIOKafkaProducer:
     )
     await p.start()
     return p
+
+async def publish_prediction(producer: AIOKafkaProducer, prediction) -> None:
+    await producer.send_and_wait(
+        settings.kafka_output_topic,
+        prediction.model_dump(mode="json"),
+        key=str(prediction.object_id).encode("utf-8"),
+    )

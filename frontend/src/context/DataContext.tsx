@@ -10,6 +10,7 @@ interface DataContextValue {
   loading: boolean
   error: string
   refresh: () => Promise<void>
+  requestPrediction: (objectId: number) => Promise<void>
   assignIncident: (id: string, username: string) => Promise<void>
   decideIncident: (id: string, decision: IncidentDecisionType, actor: string, comment: string) => Promise<void>
   resolveIncident: (id: string) => Promise<void>
@@ -17,6 +18,28 @@ interface DataContextValue {
 }
 
 const DataContext = createContext<DataContextValue | null>(null)
+
+function mergeObjects(
+  registry: InfrastructureObject[],
+  predictions: Prediction[],
+  incidents: Incident[],
+) {
+  const objectsByID = new Map(registry.map((item) => [item.object_id, item]))
+
+  for (const objectID of [...predictions, ...incidents].map((item) => item.object_id)) {
+    if (!objectsByID.has(objectID)) {
+      objectsByID.set(objectID, {
+        object_id: objectID,
+        parent_id: null,
+        hierarchy_level: 0,
+        object_type: 'unknown',
+        dispatcher_name: `Объект №${objectID}`,
+      })
+    }
+  }
+
+  return [...objectsByID.values()].sort((left, right) => left.object_id - right.object_id)
+}
 
 export function DataProvider({ children }: { children: ReactNode }) {
   const [incidents, setIncidents] = useState<Incident[]>([])
@@ -30,11 +53,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setError('')
     try {
       const [incidentPage, predictionPage, objectPage] = await Promise.all([
-        api.listIncidents(), api.listPredictions(), api.listObjects(),
+        api.listIncidents({ limit: 200 }), api.listPredictions({ limit: 200 }), api.listObjects(),
       ])
       setIncidents(incidentPage.items)
       setPredictions(predictionPage.items)
-      setObjects(objectPage.items)
+      setObjects(mergeObjects(objectPage.items, predictionPage.items, incidentPage.items))
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Не удалось загрузить данные')
     } finally {
@@ -43,6 +66,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => { void refresh() }, [refresh])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void Promise.all([api.listPredictions({ limit: 200 }), api.listObjects()])
+        .then(([predictionPage, objectPage]) => {
+          setPredictions(predictionPage.items)
+          setObjects(mergeObjects(objectPage.items, predictionPage.items, incidents))
+        })
+        .catch(() => undefined)
+    }, 10_000)
+    return () => window.clearInterval(timer)
+  }, [incidents])
 
   useEffect(() => {
     const stream = createIncidentStream({
@@ -59,6 +94,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<DataContextValue>(() => ({
     incidents, predictions, objects, loading, error, refresh,
+    requestPrediction: async (objectId) => {
+      const response = await api.requestPrediction(objectId, [])
+      setPredictions((current) => [
+        ...response.predictions,
+        ...current.filter((item) =>
+          !response.predictions.some((prediction) =>
+            prediction.prediction_id === item.prediction_id)),
+      ])
+    },
     assignIncident: async (id, username) => { await api.assignIncident(id, username); await refresh() },
     decideIncident: async (id, decision, actor, comment) => { await api.addDecision(id, { decision, actor, comment }); await refresh() },
     resolveIncident: async (id) => { await api.resolveIncident(id); await refresh() },

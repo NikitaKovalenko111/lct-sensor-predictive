@@ -8,7 +8,7 @@ import { useData } from '../context/DataContext'
 import { formatDateTime, formatPercent, getHorizonHours, getRecommendation, predictionTypeLabel } from '../lib/format'
 import type { PredictionType, RiskLevel } from '../types/api'
 
-type TypeFilter = 'all' | Extract<PredictionType, 'fire_risk' | 'nsd_event' | 'nsd_risk'>
+type TypeFilter = 'all' | PredictionType
 type RiskFilter = 'all' | RiskLevel
 
 export function PredictionsPage() {
@@ -27,11 +27,11 @@ export function PredictionsPage() {
 
   return (
     <div className="page">
-      <PageHeader eyebrow="Журнал модели" title="Прогнозы" description="Результаты моделей пожароопасности и несанкционированного доступа" actions={<button className="button button--secondary" onClick={() => void refresh()}><RefreshCw size={16} className={loading ? 'spin' : ''} />Запросить обновление</button>} />
+      <PageHeader eyebrow="Журнал модели" title="Прогнозы" description="Результаты моделей пожароопасности, НСД и отказов оборудования" actions={<button className="button button--secondary" onClick={() => void refresh()}><RefreshCw size={16} className={loading ? 'spin' : ''} />Обновить</button>} />
 
       <section className="filter-bar">
         <div className="search-field"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Объект или идентификатор" /></div>
-        <div className="select-wrap"><Filter size={16} /><select value={type} onChange={(event) => setType(event.target.value as TypeFilter)}><option value="all">Все направления</option><option value="fire_risk">Пожароопасность</option><option value="nsd_event">Событие НСД</option><option value="nsd_risk">Риск НСД</option></select></div>
+        <div className="select-wrap"><Filter size={16} /><select value={type} onChange={(event) => setType(event.target.value as TypeFilter)}><option value="all">Все направления</option><option value="fire_risk">Пожароопасность</option><option value="nsd_event">Событие НСД</option><option value="nsd_risk">Риск НСД</option><option value="equipment_failure">Отказ оборудования</option></select></div>
         <div className="select-wrap"><Activity size={16} /><select value={risk} onChange={(event) => setRisk(event.target.value as RiskFilter)}><option value="all">Любой риск</option><option value="critical">Критический</option><option value="high">Высокий</option><option value="medium">Средний</option><option value="low">Низкий</option></select></div>
         <label className="switch"><input type="checkbox" checked={alertsOnly} onChange={(event) => setAlertsOnly(event.target.checked)} /><span /><b>Только тревоги</b></label>
       </section>

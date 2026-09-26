@@ -22,6 +22,7 @@ func main() {
 	objectsPath := flag.String("objects", "", "path to the objects registry CSV")
 	channelsPath := flag.String("channels", "", "path to the sensor channels registry CSV")
 	eventsPath := flag.String("events", "", "path to the sensor events CSV")
+	eventsLookback := flag.Duration("events-lookback", 0, "import only this period before the latest event in the dataset (for example 1080h)")
 	batchSize := flag.Int("batch-size", 500, "number of records per database/Kafka batch")
 	flag.Parse()
 
@@ -52,11 +53,13 @@ func main() {
 	defer kafkaClient.Close()
 
 	objectRepository := objects.NewRepository(db)
+	eventRepository := telemetry.NewRepository(db)
 	service := importer.NewService(
 		objectRepository,
 		channels.NewRepository(db, objectRepository),
 		importjob.NewRepository(db),
 		telemetry.NewPublisher(kafkaClient, cfg.SensorEventsTopic),
+		eventRepository,
 		logger,
 		*batchSize,
 	)
@@ -78,7 +81,7 @@ func main() {
 		logger.Info("channels import completed", "import_id", result.ImportID, "processed", result.Processed, "failed", result.Failed)
 	}
 	if *eventsPath != "" {
-		result, err := service.ImportEvents(ctx, *eventsPath)
+		result, err := service.ImportEvents(ctx, *eventsPath, *eventsLookback)
 		if err != nil {
 			logger.Error("events import failed", "import_id", result.ImportID, "error", err)
 			os.Exit(1)

@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-По умолчанию клиент подключён к backend через Vite proxy (`http://localhost:8080`). Для автономной разработки можно создать `.env.local` и включить mock-режим:
+По умолчанию клиент подключён к backend через Vite proxy (`http://localhost:8083`). Для автономной разработки можно создать `.env.local` и включить mock-режим:
 
 ```dotenv
 VITE_API_MODE=mock

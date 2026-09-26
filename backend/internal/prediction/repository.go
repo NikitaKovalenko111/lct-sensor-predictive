@@ -22,16 +22,23 @@ func (r *Repository) Upsert(ctx context.Context, prediction contracts.Prediction
 	if err := prediction.Validate(); err != nil {
 		return "", err
 	}
+	if prediction.PredictionID != "" {
+		return r.upsertByID(ctx, prediction)
+	}
+	return r.upsertLegacy(ctx, prediction)
+}
+
+func (r *Repository) upsertByID(ctx context.Context, prediction contracts.Prediction) (string, error) {
 	var predictionID string
 	err := r.pool.QueryRow(ctx, `
 		INSERT INTO predictions (
 			prediction_id, object_id, prediction_type, risk_score, risk_level,
 			is_alert, predicted_at, features_used, model_version, schema_version
 		) VALUES (
-			COALESCE(NULLIF($1, '')::uuid, gen_random_uuid()), $2, $3, $4, $5,
+			$1::uuid, $2, $3, $4, $5,
 			$6, $7, $8, $9, $10
 		)
-		ON CONFLICT (object_id, prediction_type, predicted_at, model_version) DO UPDATE SET
+		ON CONFLICT (prediction_id) DO UPDATE SET
 			risk_score = EXCLUDED.risk_score,
 			risk_level = EXCLUDED.risk_level,
 			is_alert = EXCLUDED.is_alert,
@@ -42,7 +49,30 @@ func (r *Repository) Upsert(ctx context.Context, prediction contracts.Prediction
 		prediction.RiskScore, prediction.RiskLevel, prediction.IsAlert, prediction.PredictedAt,
 		prediction.FeaturesUsed, prediction.ModelVersion, prediction.SchemaVersion).Scan(&predictionID)
 	if err != nil {
-		return "", fmt.Errorf("upsert prediction: %w", err)
+		return "", fmt.Errorf("upsert prediction by id: %w", err)
+	}
+	return predictionID, nil
+}
+
+func (r *Repository) upsertLegacy(ctx context.Context, prediction contracts.Prediction) (string, error) {
+	var predictionID string
+	err := r.pool.QueryRow(ctx, `
+		INSERT INTO predictions (
+			object_id, prediction_type, risk_score, risk_level,
+			is_alert, predicted_at, features_used, model_version, schema_version
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		ON CONFLICT (object_id, prediction_type, predicted_at, model_version) DO UPDATE SET
+			risk_score = EXCLUDED.risk_score,
+			risk_level = EXCLUDED.risk_level,
+			is_alert = EXCLUDED.is_alert,
+			features_used = EXCLUDED.features_used,
+			updated_at = now()
+		RETURNING prediction_id::text
+	`, prediction.ObjectID, prediction.PredictionType, prediction.RiskScore,
+		prediction.RiskLevel, prediction.IsAlert, prediction.PredictedAt,
+		prediction.FeaturesUsed, prediction.ModelVersion, prediction.SchemaVersion).Scan(&predictionID)
+	if err != nil {
+		return "", fmt.Errorf("upsert legacy prediction: %w", err)
 	}
 	return predictionID, nil
 }

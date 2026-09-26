@@ -8,14 +8,10 @@
   use it as the primary prediction deduplication key while retaining a compatibility
   path for older messages without that field.
 
-## Model integration
+## Model operations
 
-- Implement `POST /predict` in the Python service using the contract documented in
-  `docs/model-integration.md`. The endpoint must return the calculated predictions and
-  publish the same predictions to `predictions.v1` for persistence and incident
-  processing.
-- Add the Python service and its model artifacts to the shared Compose file after the
-  model branch is merged.
+- Supply the trained `.joblib` artifacts outside Git and run a live end-to-end test
+  through the shared Compose profile `model`.
 - Decide later whether a fresh model consumer group should replay the complete
   historical topic or start from new events only.
-- Define Python-service health/error behavior and the equipment-failure model contract.
+- Define production monitoring and retry policy for failed Python inference.

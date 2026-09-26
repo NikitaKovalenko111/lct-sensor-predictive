@@ -36,12 +36,16 @@ export interface PredictionFilters {
   prediction_type?: PredictionType
   risk_level?: RiskLevel
   alert_only?: boolean
+  limit?: number
+  offset?: number
 }
 
 export interface IncidentFilters {
   object_id?: number
   status?: Incident['status']
   risk_level?: RiskLevel
+  limit?: number
+  offset?: number
 }
 
 export interface PredictiveApi {

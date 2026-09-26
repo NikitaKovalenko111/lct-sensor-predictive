@@ -1,6 +1,6 @@
 import joblib
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone
 from .config import settings
 from .schemas import Prediction
 
@@ -39,7 +39,7 @@ class Predictor:
             risk_score=round(float(proba), 4),
             risk_level=self._level(proba),
             is_alert=bool(proba >= thr),
-            predicted_at=datetime.utcnow(),
+            predicted_at=datetime.now(timezone.utc),
             features_used={k: fdict.get(k) for k in feats[:6]},
         )
 
@@ -57,4 +57,4 @@ class Predictor:
 
     def fault_risk(self, obj, fdict):
         p = self.fault.predict_proba(self._vec(fdict, self.fault_ft))[0, 1]
-        return self._make(obj, "fault_risk", p, self.fault_thr, fdict, self.fault_ft)
+        return self._make(obj, "equipment_failure", p, self.fault_thr, fdict, self.fault_ft)

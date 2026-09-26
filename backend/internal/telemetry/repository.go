@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/contracts"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -40,6 +41,42 @@ func (r *Repository) Upsert(ctx context.Context, event contracts.SensorEvent) er
 		return fmt.Errorf("upsert sensor event: %w", err)
 	}
 	return nil
+}
+
+func (r *Repository) UpsertBatch(ctx context.Context, events []contracts.SensorEvent) ([]contracts.SensorEvent, error) {
+	if len(events) == 0 {
+		return nil, nil
+	}
+	batch := &pgx.Batch{}
+	for _, event := range events {
+		if err := event.Validate(); err != nil {
+			return nil, err
+		}
+		batch.Queue(`
+			INSERT INTO sensor_events (
+				event_id, object_id, channel_id, sensor_type, engineering_system,
+				value, is_alarm, occurred_at, schema_version
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			ON CONFLICT (event_id) DO NOTHING
+		`, event.EventID, event.ObjectID, event.ChannelID, event.SensorType,
+			event.EngineeringSystem, event.Value, event.IsAlarm, event.Timestamp, event.SchemaVersion)
+	}
+	results := r.pool.SendBatch(ctx, batch)
+	inserted := make([]contracts.SensorEvent, 0, len(events))
+	for index := range events {
+		tag, err := results.Exec()
+		if err != nil {
+			_ = results.Close()
+			return nil, fmt.Errorf("upsert sensor event batch: %w", err)
+		}
+		if tag.RowsAffected() > 0 {
+			inserted = append(inserted, events[index])
+		}
+	}
+	if err := results.Close(); err != nil {
+		return nil, fmt.Errorf("close sensor event batch: %w", err)
+	}
+	return inserted, nil
 }
 
 func (r *Repository) List(ctx context.Context, filter ListFilter) ([]contracts.SensorEvent, error) {

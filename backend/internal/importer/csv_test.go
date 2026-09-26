@@ -58,3 +58,23 @@ func TestParseBoolSupportsDatasetValues(t *testing.T) {
 		}
 	}
 }
+
+func TestLatestEventTimestamp(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.csv")
+	content := "ид_события;ид_канала_данных;дата;время;тревожное;значение_датчика\n" +
+		"old;channel-1;01.08.2026;10:00:00;false;1\n" +
+		"bad;channel-1;invalid;time;false;1\n" +
+		"latest;channel-1;15.09.2026;12:30:00;true;1\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	latest, err := latestEventTimestamp(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, 9, 15, 9, 30, 0, 0, time.UTC)
+	if !latest.Equal(want) {
+		t.Fatalf("got %s, want %s", latest, want)
+	}
+}

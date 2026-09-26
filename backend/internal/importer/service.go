@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"time"
 
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/channels"
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/contracts"
@@ -22,6 +23,7 @@ type Service struct {
 	channels  *channels.Repository
 	jobs      *importjob.Repository
 	publisher *telemetry.Publisher
+	events    *telemetry.Repository
 	logger    *slog.Logger
 	batchSize int
 }
@@ -31,6 +33,7 @@ func NewService(
 	channelRepository *channels.Repository,
 	jobRepository *importjob.Repository,
 	publisher *telemetry.Publisher,
+	eventRepository *telemetry.Repository,
 	logger *slog.Logger,
 	batchSize int,
 ) *Service {
@@ -39,7 +42,7 @@ func NewService(
 	}
 	return &Service{
 		objects: objectRepository, channels: channelRepository, jobs: jobRepository,
-		publisher: publisher, logger: logger, batchSize: batchSize,
+		publisher: publisher, events: eventRepository, logger: logger, batchSize: batchSize,
 	}
 }
 
@@ -159,13 +162,26 @@ func (s *Service) ImportChannels(ctx context.Context, path string) (result Resul
 	return result, nil
 }
 
-func (s *Service) ImportEvents(ctx context.Context, path string) (result Result, returnErr error) {
+func (s *Service) ImportEvents(ctx context.Context, path string, lookback time.Duration) (result Result, returnErr error) {
 	jobID, err := s.jobs.Start(ctx, "events", filepath.Base(path), path)
 	if err != nil {
 		return Result{}, err
 	}
 	result.ImportID = jobID
 	defer s.finishJob(ctx, &result, &returnErr)
+
+	if lookback < 0 {
+		return result, fmt.Errorf("events lookback must not be negative")
+	}
+	var cutoff time.Time
+	if lookback > 0 {
+		latest, err := latestEventTimestamp(path)
+		if err != nil {
+			return result, err
+		}
+		cutoff = latest.Add(-lookback)
+		s.logger.Info("filter historical events", "latest", latest, "cutoff", cutoff, "lookback", lookback)
+	}
 
 	lookup, err := s.channels.EventLookup(ctx)
 	if err != nil {
@@ -205,9 +221,12 @@ func (s *Service) ImportEvents(ctx context.Context, path string) (result Result,
 			s.logRejectedRow("events", table.row, err)
 			continue
 		}
+		if !cutoff.IsZero() && event.Timestamp.Before(cutoff) {
+			continue
+		}
 		batch = append(batch, event)
 		if len(batch) >= s.batchSize {
-			if err := s.publisher.PublishBatch(ctx, batch); err != nil {
+			if err := s.persistAndPublishEvents(ctx, batch); err != nil {
 				return result, err
 			}
 			result.Processed += int64(len(batch))
@@ -215,11 +234,55 @@ func (s *Service) ImportEvents(ctx context.Context, path string) (result Result,
 			s.reportProgress(ctx, result)
 		}
 	}
-	if err := s.publisher.PublishBatch(ctx, batch); err != nil {
+	if err := s.persistAndPublishEvents(ctx, batch); err != nil {
 		return result, err
 	}
 	result.Processed += int64(len(batch))
 	return result, nil
+}
+
+func (s *Service) persistAndPublishEvents(ctx context.Context, events []contracts.SensorEvent) error {
+	inserted, err := s.events.UpsertBatch(ctx, events)
+	if err != nil {
+		return err
+	}
+	return s.publisher.PublishBatch(ctx, inserted)
+}
+
+func latestEventTimestamp(path string) (time.Time, error) {
+	table, err := openCSV(path)
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer table.Close()
+	if err := table.RequireHeaders(
+		[]string{"дата", "date"},
+		[]string{"время", "time"},
+	); err != nil {
+		return time.Time{}, err
+	}
+
+	var latest time.Time
+	for {
+		record, err := table.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return time.Time{}, fmt.Errorf("read events row %d: %w", table.row+1, err)
+		}
+		timestamp, err := parseTimestamp(
+			table.Value(record, "дата", "date"),
+			table.Value(record, "время", "time"),
+		)
+		if err == nil && timestamp.After(latest) {
+			latest = timestamp
+		}
+	}
+	if latest.IsZero() {
+		return time.Time{}, fmt.Errorf("events CSV has no valid timestamps")
+	}
+	return latest, nil
 }
 
 func parseObject(table *csvTable, record []string) (objects.Object, error) {

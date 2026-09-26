@@ -16,19 +16,26 @@ docker compose --profile mock --profile demo up --build
 
 After startup:
 
-- API: <http://localhost:8080>
-- OpenAPI file: <http://localhost:8080/api/openapi.yaml>
+- API: <http://localhost:8083>
+- OpenAPI file: <http://localhost:8083/api/openapi.yaml>
 - Swagger UI: <http://localhost:8081>
-- PostgreSQL: `localhost:5432`
+- PostgreSQL: `localhost:5433`
 - Kafka from the host: `localhost:29092`
 
 The local Docker Compose profile creates the frontend demo accounts `admin`,
 `dispatcher`, and `analyst`. Their development-only passwords are shown on the login
 screen and can be overridden through the corresponding `BOOTSTRAP_*` variables.
 
-The `demo` profile publishes one synthetic temperature event every five seconds.
+The `demo` profile publishes one synthetic event per registered object every five
+seconds and reloads the object and channel registry once a minute.
 The `mock` profile consumes these events and publishes predictions using the same
 contract expected from the Python model.
+
+Every Compose startup runs `bootstrap-importer` after database migrations. It
+idempotently imports all objects and channels from `testdata/objects.csv` and
+`testdata/channels.csv`, then imports the final 45 days relative to the latest
+timestamp in `testdata/events.csv`. Historical events are written directly to
+PostgreSQL and also published to Kafka for model processing.
 
 ## Data flow
 
@@ -78,9 +85,9 @@ The source of truth for JSON fields is `internal/contracts/model.go`.
 - Delivery semantics: at least once; consumers must be idempotent
 - Current schema version: `1`
 
-The original Python `Prediction` contract has no `prediction_id`. Therefore backend
-deduplication currently uses `(object_id, prediction_type, predicted_at, model_version)`.
-Adding a UUID `prediction_id` is recommended but optional for compatibility.
+The Python service emits a stable UUID `prediction_id`. Backend consumers use it for
+idempotency and retain
+`(object_id, prediction_type, predicted_at, model_version)` for legacy producers.
 
 The current Python service contract, environment variables, timestamp compatibility,
 and launch procedure are documented in [`docs/model-integration.md`](docs/model-integration.md).
@@ -137,6 +144,7 @@ go run ./cmd/importer \
   --objects /data/objects.csv \
   --channels /data/channels.csv \
   --events /data/ext-journal-2026.csv \
+  --events-lookback 1080h \
   --batch-size 500
 ```
 

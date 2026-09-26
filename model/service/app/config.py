@@ -1,14 +1,15 @@
+import os
 from pathlib import Path
 from pydantic_settings import BaseSettings
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]  # .../model
+PROJECT_ROOT = Path(os.getenv("MODEL_ROOT", Path(__file__).resolve().parents[2]))
 
 class Settings(BaseSettings):
     # Kafka
-    kafka_bootstrap_servers: str = "localhost:9092"
-    kafka_input_topic: str = "sensor_events"
-    kafka_output_topic: str = "predictions"
-    kafka_consumer_group: str = "model-service"
+    kafka_bootstrap_servers: str = "localhost:29092"
+    kafka_input_topic: str = "sensor.events.v1"
+    kafka_output_topic: str = "predictions.v1"
+    kafka_consumer_group: str = "model-service.v1"
 
     # PostgreSQL
     database_url: str = "postgresql://postgres:postgres@localhost:5432/model_db"
@@ -26,7 +27,6 @@ class Settings(BaseSettings):
     risk_thr_path: Path    = PROJECT_ROOT / "models/unac/saved/nsd_risk_threshold.joblib"
     risk_feat_path: Path   = PROJECT_ROOT / "models/unac/saved/nsd_risk_features.joblib"
 
-    # ← ДОБАВИТЬ: модель поломок
     fault_model_path: Path = PROJECT_ROOT / "models/fault_risk/saved/fault_model.joblib"
     fault_thr_path: Path   = PROJECT_ROOT / "models/fault_risk/saved/fault_threshold.joblib"
     fault_feat_path: Path  = PROJECT_ROOT / "models/fault_risk/saved/fault_features.joblib"

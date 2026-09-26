@@ -1,4 +1,0 @@
-ид_события;ид_канала_данных;дата;время;тревожное;значение_датчика
-demo-event-1;demo-temperature-1;19.09.2026;17:00:00;false;24.5
-demo-event-2;demo-temperature-1;19.09.2026;17:05:00;true;68.2
-demo-event-3;demo-motion-1;19.09.2026;17:06:00;true;1

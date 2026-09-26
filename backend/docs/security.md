@@ -57,7 +57,7 @@ simulator, and model pipelines use Kafka directly.
 Authenticate:
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/auth/login \
+curl -X POST http://localhost:8083/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"your-bootstrap-password"}'
 ```
@@ -65,7 +65,7 @@ curl -X POST http://localhost:8080/api/v1/auth/login \
 Create a dispatcher using the returned token:
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/users \
+curl -X POST http://localhost:8083/api/v1/users \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"username":"dispatcher1","password":"a-long-unique-password","role":"dispatcher"}'
