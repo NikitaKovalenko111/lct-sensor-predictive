@@ -4,5 +4,6 @@ mcollector.duckdb
 mcollector*
 *.parquet
 /models/*/saved
+**/.env
 **/catboost_info
 **/__pycache__
