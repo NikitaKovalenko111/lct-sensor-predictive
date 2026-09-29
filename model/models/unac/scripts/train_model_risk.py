@@ -1,12 +1,14 @@
 import pandas as pd, numpy as np, joblib
 from pathlib import Path
+import os
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import (average_precision_score, roc_auc_score, precision_recall_curve,
                              precision_score, recall_score, f1_score, confusion_matrix)
 import warnings; warnings.filterwarnings('ignore')
 
-DATA = Path.cwd() / 'dataset/parquets/unac/unac_risk_dataset.parquet'
-MODEL_DIR = Path.cwd() / 'models' / 'unac' / 'saved'
+DATA = Path(os.environ.get('TRAIN_DATA_ROOT', Path(__file__).resolve().parents[3] / 'dataset/parquets')) / 'unac/unac_risk_dataset.parquet'
+MODEL_DIR = Path(os.environ.get('TRAIN_OUTPUT_ROOT', Path(__file__).resolve().parents[3] / 'models')) / 'unac/saved'
+MODEL_DIR.mkdir(parents=True, exist_ok=True)
 TARGET = 'is_nsd_day'
 
 FEATURES = ['nsd_prev_1d', 'nsd_prev_7d', 'nsd_prev_30d',

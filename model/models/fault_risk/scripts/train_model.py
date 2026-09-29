@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import joblib
 from pathlib import Path
+import os
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import (average_precision_score, roc_auc_score,
                              precision_recall_curve, precision_score,
@@ -14,8 +15,8 @@ warnings.filterwarnings('ignore')
 # ============================================================
 # КОНФИГУРАЦИЯ
 # ============================================================
-DATA = Path('dataset/parquets/fault_risk/fault_dataset_v2.parquet')
-MODEL_DIR = Path('models/fault_risk/saved')
+DATA = Path(os.environ.get('TRAIN_DATA_ROOT', Path(__file__).resolve().parents[3] / 'dataset/parquets')) / 'fault_risk/fault_dataset_v2.parquet'
+MODEL_DIR = Path(os.environ.get('TRAIN_OUTPUT_ROOT', Path(__file__).resolve().parents[3] / 'models')) / 'fault_risk/saved'
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
 SPLIT_YEAR = 2024
 
