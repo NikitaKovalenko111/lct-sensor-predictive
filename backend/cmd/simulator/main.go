@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -21,7 +22,12 @@ import (
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/telemetry"
 )
 
-const registryPageSize = 500
+const (
+	registryPageSize          = 500
+	defaultAlarmProbability   = 0.001
+	defaultSimulationInterval = 30 * time.Second
+	defaultObjectsPerBatch    = 25
+)
 
 type simulationChannel struct {
 	channelID         string
@@ -30,10 +36,24 @@ type simulationChannel struct {
 }
 
 func main() {
-	interval := flag.Duration("interval", 5*time.Second, "interval between batches of sensor events")
+	interval := flag.Duration("interval", defaultSimulationInterval, "interval between batches of sensor events")
 	registryRefresh := flag.Duration("registry-refresh", time.Minute, "interval between object registry reloads")
 	objectID := flag.Int64("object-id", 0, "optional object identifier; zero simulates every object")
+	alarmProbability := flag.Float64("alarm-probability", defaultAlarmProbability, "probability of an alarm for each generated event")
+	objectsPerBatch := flag.Int("objects-per-batch", defaultObjectsPerBatch, "maximum number of objects included in one batch; zero means every object")
 	flag.Parse()
+	if *interval <= 0 {
+		fmt.Fprintln(os.Stderr, "interval must be positive")
+		os.Exit(2)
+	}
+	if *alarmProbability < 0 || *alarmProbability > 1 {
+		fmt.Fprintln(os.Stderr, "alarm-probability must be between 0 and 1")
+		os.Exit(2)
+	}
+	if *objectsPerBatch < 0 {
+		fmt.Fprintln(os.Stderr, "objects-per-batch must not be negative")
+		os.Exit(2)
+	}
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	cfg, err := config.Load()
@@ -70,9 +90,11 @@ func main() {
 	}
 	defer client.Close()
 	publisher := telemetry.NewPublisher(client, cfg.SensorEventsTopic)
+	registryCursor := 0
 
 	publish := func(timestamp time.Time) {
-		events, alarms := simulatedEvents(registry, timestamp)
+		batchRegistry := nextSimulationBatch(registry, *objectsPerBatch, &registryCursor)
+		events, alarms := simulatedEvents(batchRegistry, timestamp, *alarmProbability)
 		if err := publisher.PublishBatch(ctx, events); err != nil {
 			logger.Error("publish simulated events", "error", err)
 			return
@@ -80,7 +102,7 @@ func main() {
 		logger.Info("simulated event batch published", "events", len(events), "alarms", alarms)
 	}
 
-	logger.Info("simulator started", "interval", interval.String(), "objects", len(registry))
+	logger.Info("simulator started", "interval", interval.String(), "objects", len(registry), "objects_per_batch", *objectsPerBatch, "alarm_probability", *alarmProbability)
 	publish(time.Now())
 
 	eventTicker := time.NewTicker(*interval)
@@ -103,6 +125,27 @@ func main() {
 			logger.Info("simulation registry refreshed", "objects", len(registry))
 		}
 	}
+}
+
+func nextSimulationBatch(registry map[int64][]simulationChannel, limit int, cursor *int) map[int64][]simulationChannel {
+	if limit <= 0 || limit >= len(registry) {
+		return registry
+	}
+	objectIDs := make([]int64, 0, len(registry))
+	for objectID := range registry {
+		objectIDs = append(objectIDs, objectID)
+	}
+	sort.Slice(objectIDs, func(i, j int) bool { return objectIDs[i] < objectIDs[j] })
+	if *cursor >= len(objectIDs) {
+		*cursor = 0
+	}
+	batch := make(map[int64][]simulationChannel, limit)
+	for index := 0; index < limit; index++ {
+		objectID := objectIDs[(*cursor+index)%len(objectIDs)]
+		batch[objectID] = registry[objectID]
+	}
+	*cursor = (*cursor + limit) % len(objectIDs)
+	return batch
 }
 
 func loadRegistry(
@@ -151,12 +194,16 @@ func loadRegistry(
 	return result, nil
 }
 
-func simulatedEvents(registry map[int64][]simulationChannel, timestamp time.Time) ([]contracts.SensorEvent, int) {
+func simulatedEvents(registry map[int64][]simulationChannel, timestamp time.Time, alarmProbability ...float64) ([]contracts.SensorEvent, int) {
+	probability := defaultAlarmProbability
+	if len(alarmProbability) > 0 {
+		probability = alarmProbability[0]
+	}
 	events := make([]contracts.SensorEvent, 0, len(registry))
 	alarms := 0
 	for objectID, objectChannels := range registry {
 		channel := objectChannels[rand.IntN(len(objectChannels))]
-		alarm := rand.IntN(10) < 2
+		alarm := rand.Float64() < probability
 		if alarm {
 			alarms++
 		}

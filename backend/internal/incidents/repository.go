@@ -26,6 +26,9 @@ func (r *Repository) CreateFromPrediction(ctx context.Context, predictionID stri
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := lockIncidentKey(ctx, tx, predictionID); err != nil {
+		return nil, err
+	}
 	row := tx.QueryRow(ctx, `
 		INSERT INTO incidents (
 			prediction_id, object_id, incident_type, risk_score, risk_level, title, description
@@ -41,7 +44,13 @@ func (r *Repository) CreateFromPrediction(ctx context.Context, predictionID stri
 		FROM predictions
 		WHERE prediction_id = $1::uuid
 		  AND (is_alert IS TRUE OR (is_alert IS NULL AND risk_level IN ('high', 'critical')))
-		ON CONFLICT (prediction_id) DO NOTHING
+		  AND NOT EXISTS (
+		      SELECT 1 FROM incidents active
+		      WHERE active.object_id = predictions.object_id
+		        AND active.incident_type = predictions.prediction_type
+		        AND active.status IN ('new', 'in_review')
+		  )
+		ON CONFLICT DO NOTHING
 		RETURNING incident_id::text, prediction_id::text, object_id, incident_type,
 		          risk_score, risk_level, status, title, description,
 		          COALESCE(assigned_to, ''), created_at, updated_at, resolved_at
@@ -66,6 +75,9 @@ func (r *Repository) CreateFromPrediction(ctx context.Context, predictionID stri
 }
 
 func (r *Repository) CreateFromPredictionTx(ctx context.Context, tx pgx.Tx, predictionID string) (*Incident, error) {
+	if err := lockIncidentKey(ctx, tx, predictionID); err != nil {
+		return nil, err
+	}
 	row := tx.QueryRow(ctx, `
 		INSERT INTO incidents (
 			prediction_id, object_id, incident_type, risk_score, risk_level, title, description
@@ -81,7 +93,13 @@ func (r *Repository) CreateFromPredictionTx(ctx context.Context, tx pgx.Tx, pred
 		FROM predictions
 		WHERE prediction_id = $1::uuid
 		  AND (is_alert IS TRUE OR (is_alert IS NULL AND risk_level IN ('high', 'critical')))
-		ON CONFLICT (prediction_id) DO NOTHING
+		  AND NOT EXISTS (
+		      SELECT 1 FROM incidents active
+		      WHERE active.object_id = predictions.object_id
+		        AND active.incident_type = predictions.prediction_type
+		        AND active.status IN ('new', 'in_review')
+		  )
+		ON CONFLICT DO NOTHING
 		RETURNING incident_id::text, prediction_id::text, object_id, incident_type,
 		          risk_score, risk_level, status, title, description,
 		          COALESCE(assigned_to, ''), created_at, updated_at, resolved_at
@@ -325,6 +343,16 @@ func scanIncident(row rowScanner) (Incident, error) {
 func notify(ctx context.Context, tx pgx.Tx, event, id string) error {
 	if _, err := tx.Exec(ctx, `SELECT pg_notify($1, json_build_object('event', $2::text, 'incident_id', $3::text)::text)`, notificationChannel, event, id); err != nil {
 		return fmt.Errorf("queue incident notification: %w", err)
+	}
+	return nil
+}
+
+func lockIncidentKey(ctx context.Context, tx pgx.Tx, predictionID string) error {
+	if _, err := tx.Exec(ctx, `
+		SELECT pg_advisory_xact_lock(hashtextextended(object_id::text || ':' || prediction_type, 0))
+		FROM predictions WHERE prediction_id = $1::uuid
+	`, predictionID); err != nil {
+		return fmt.Errorf("lock active incident key: %w", err)
 	}
 	return nil
 }

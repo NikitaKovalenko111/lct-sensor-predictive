@@ -183,7 +183,17 @@ services:
         build:
             context: .
         entrypoint:
-            ["/app/simulator", "-interval", "5s", "-registry-refresh", "1m"]
+            [
+                "/app/simulator",
+                "-interval",
+                "30s",
+                "-registry-refresh",
+                "1m",
+                "-alarm-probability",
+                "0.001",
+                "-objects-per-batch",
+                "25",
+            ]
         environment:
             <<: *backend-environment
         depends_on:

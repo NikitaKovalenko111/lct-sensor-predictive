@@ -34,7 +34,7 @@ export function IncidentsPage() {
     void api.getIncident(selectedId).then(setDetail).catch((cause) => {
       setDetailError(cause instanceof Error ? cause.message : 'Не удалось загрузить инцидент')
     })
-  }, [selectedId, incidents])
+  }, [selectedId])
 
   const filtered = useMemo(() => incidents.filter((incident) => {
     const object = objects.find((item) => item.object_id === incident.object_id)

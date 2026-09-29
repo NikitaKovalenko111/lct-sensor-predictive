@@ -52,6 +52,13 @@ function mergeObjects(
   return [...objectsByID.values()].sort((left, right) => left.object_id - right.object_id)
 }
 
+function keepObjectsReference(
+  current: InfrastructureObject[],
+  next: InfrastructureObject[],
+) {
+  return JSON.stringify(current) === JSON.stringify(next) ? current : next
+}
+
 export function DataProvider({ children }: { children: ReactNode }) {
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [predictions, setPredictions] = useState<Prediction[]>([])
@@ -70,7 +77,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
       ])
       setIncidents(incidentItems)
       setPredictions(predictionItems)
-      setObjects(mergeObjects(objectItems, predictionItems, incidentItems))
+      setObjects((current) => keepObjectsReference(
+        current,
+        mergeObjects(objectItems, predictionItems, incidentItems),
+      ))
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Не удалось загрузить данные')
     } finally {
@@ -88,7 +98,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
       ])
         .then(([predictionItems, objectItems]) => {
           setPredictions(predictionItems)
-          setObjects(mergeObjects(objectItems, predictionItems, incidents))
+          setObjects((current) => keepObjectsReference(
+            current,
+            mergeObjects(objectItems, predictionItems, incidents),
+          ))
         })
         .catch(() => undefined)
     }, 10_000)
