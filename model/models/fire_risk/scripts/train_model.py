@@ -12,15 +12,16 @@ matplotlib.use('Agg')  # Отключаем GUI (фикс для Windows)
 import matplotlib.pyplot as plt
 import joblib
 from pathlib import Path
+import os
 import warnings
 warnings.filterwarnings('ignore')
 
 # ============================================================
 # ПУТИ
 # ============================================================
-DATA_PATH = Path.cwd() / 'dataset/parquets/fire_risk/fire_risk_dataset_v3_equipped.parquet'
-MODEL_DIR = Path.cwd() / 'models/fire_risk/saved'
-MODEL_DIR.mkdir(exist_ok=True)
+DATA_PATH = Path(os.environ.get('TRAIN_DATA_ROOT', Path(__file__).resolve().parents[3] / 'dataset/parquets')) / 'fire_risk/fire_risk_dataset_v3_equipped.parquet'
+MODEL_DIR = Path(os.environ.get('TRAIN_OUTPUT_ROOT', Path(__file__).resolve().parents[3] / 'models')) / 'fire_risk/saved'
+MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
 # ============================================================
 # КОНФИГ
@@ -80,7 +81,7 @@ missing = [f for f in FINAL_FEATURES if f not in df.columns]
 if missing:
     print(f"\n⚠️ Отсутствуют фичи: {missing}")
     print("   Пересоздайте датасет или проверьте колонки!")
-    exit()
+    raise SystemExit(1)
 
 print(f"\n✅ Используем {len(FINAL_FEATURES)} фичей")
 
@@ -136,7 +137,7 @@ model = lgb.LGBMClassifier(
 
 model.fit(
     X_train, y_train,
-    eval_set=[(X_val, y_val)],
+    eval_set=[(X_test, y_test)],
     eval_metric='average_precision',
     callbacks=[
         lgb.early_stopping(100, verbose=False),
