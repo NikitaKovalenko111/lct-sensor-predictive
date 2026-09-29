@@ -32,9 +32,9 @@ func (r *Repository) Upsert(ctx context.Context, event contracts.SensorEvent) er
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO sensor_events (
 			event_id, object_id, channel_id, sensor_type, engineering_system,
-			value, is_alarm, occurred_at, schema_version
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		ON CONFLICT (event_id) DO NOTHING
+			value, is_alarm, occurred_at, schema_version, kafka_published_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+		ON CONFLICT (event_id) DO UPDATE SET kafka_published_at = COALESCE(sensor_events.kafka_published_at, now())
 	`, event.EventID, event.ObjectID, event.ChannelID, event.SensorType,
 		event.EngineeringSystem, event.Value, event.IsAlarm, event.Timestamp, event.SchemaVersion)
 	if err != nil {
@@ -57,7 +57,8 @@ func (r *Repository) UpsertBatch(ctx context.Context, events []contracts.SensorE
 				event_id, object_id, channel_id, sensor_type, engineering_system,
 				value, is_alarm, occurred_at, schema_version
 			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-			ON CONFLICT (event_id) DO NOTHING
+			ON CONFLICT (event_id) DO UPDATE SET event_id = EXCLUDED.event_id
+			WHERE sensor_events.kafka_published_at IS NULL
 		`, event.EventID, event.ObjectID, event.ChannelID, event.SensorType,
 			event.EngineeringSystem, event.Value, event.IsAlarm, event.Timestamp, event.SchemaVersion)
 	}
@@ -77,6 +78,23 @@ func (r *Repository) UpsertBatch(ctx context.Context, events []contracts.SensorE
 		return nil, fmt.Errorf("close sensor event batch: %w", err)
 	}
 	return inserted, nil
+}
+
+func (r *Repository) MarkPublishedBatch(ctx context.Context, events []contracts.SensorEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(events))
+	for _, event := range events {
+		ids = append(ids, event.EventID)
+	}
+	if _, err := r.pool.Exec(ctx, `
+		UPDATE sensor_events SET kafka_published_at = now()
+		WHERE event_id = ANY($1::uuid[])
+	`, ids); err != nil {
+		return fmt.Errorf("mark sensor events published: %w", err)
+	}
+	return nil
 }
 
 func (r *Repository) List(ctx context.Context, filter ListFilter) ([]contracts.SensorEvent, error) {

@@ -2,7 +2,6 @@ dataset/data
 .venv
 mcollector.duckdb
 mcollector*
-*.parquet
 /models/*/saved
 **/.env
 **/catboost_info

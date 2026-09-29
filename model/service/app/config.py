@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     kafka_bootstrap_servers: str = "localhost:29092"
     kafka_input_topic: str = "sensor.events.v1"
     kafka_output_topic: str = "predictions.v1"
+    kafka_dlq_topic: str = "sensor.events.dlq.v1"
     kafka_consumer_group: str = "model-service.v1"
 
     # PostgreSQL

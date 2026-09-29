@@ -18,12 +18,16 @@ func (s *Server) registerObjectRoutes(mux *http.ServeMux) {
 
 func (s *Server) listObjects(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
+	limit, offset, ok := parsePagination(w, r)
+	if !ok {
+		return
+	}
 	items, err := s.objects.List(r.Context(), objects.ListFilter{
 		ParentID:   parseInt64(query.Get("parent_id")),
 		ObjectType: query.Get("object_type"),
 		Search:     query.Get("search"),
-		Limit:      int(parseInt64(query.Get("limit"))),
-		Offset:     int(parseInt64(query.Get("offset"))),
+		Limit:      limit,
+		Offset:     offset,
 	})
 	if err != nil {
 		s.logger.Error("list objects", "error", err)
@@ -54,11 +58,15 @@ func (s *Server) getObject(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
+	limit, offset, ok := parsePagination(w, r)
+	if !ok {
+		return
+	}
 	items, err := s.channels.ListByObject(
 		r.Context(),
 		parseInt64(query.Get("object_id")),
-		int(parseInt64(query.Get("limit"))),
-		int(parseInt64(query.Get("offset"))),
+		limit,
+		offset,
 	)
 	if err != nil {
 		s.logger.Error("list channels", "error", err)
@@ -70,10 +78,14 @@ func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) objectsGeoJSON(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
+	limit, offset, ok := parsePagination(w, r)
+	if !ok {
+		return
+	}
 	items, err := s.objects.List(r.Context(), objects.ListFilter{
 		ObjectType: query.Get("object_type"),
-		Limit:      int(parseInt64(query.Get("limit"))),
-		Offset:     int(parseInt64(query.Get("offset"))),
+		Limit:      limit,
+		Offset:     offset,
 	})
 	if err != nil {
 		s.logger.Error("list map objects", "error", err)

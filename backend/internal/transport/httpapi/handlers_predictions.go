@@ -53,13 +53,17 @@ func (s *Server) requestPrediction(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listPredictions(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
+	limit, offset, ok := parsePagination(w, r)
+	if !ok {
+		return
+	}
 	filter := prediction.ListFilter{
 		ObjectID:       parseInt64(query.Get("object_id")),
 		PredictionType: query.Get("prediction_type"),
 		RiskLevel:      query.Get("risk_level"),
 		AlertOnly:      query.Get("alert_only") == "true",
-		Limit:          int(parseInt64(query.Get("limit"))),
-		Offset:         int(parseInt64(query.Get("offset"))),
+		Limit:          limit,
+		Offset:         offset,
 	}
 	items, err := s.predictions.List(r.Context(), filter)
 	if err != nil {

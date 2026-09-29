@@ -22,7 +22,7 @@ func TestPredict(t *testing.T) {
 			t.Fatalf("unexpected request body: %+v", request)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"predictions":[{"prediction_id":"42e662ce-fdac-4892-a75e-cc7fe195db1b","object_id":1001,"prediction_type":"fire_risk","risk_score":0.72,"risk_level":"high","is_alert":true,"predicted_at":"2026-09-23T12:00:00Z","features_used":{"alarms_1h":2},"model_version":"v1.0"}]}`))
+		_, _ = w.Write([]byte(`{"predictions":[{"schema_version":1,"prediction_id":"42e662ce-fdac-4892-a75e-cc7fe195db1b","object_id":1001,"prediction_type":"fire_risk","risk_score":0.72,"risk_level":"high","is_alert":true,"predicted_at":"2026-09-23T12:00:00Z","features_used":{"alarms_1h":2},"model_version":"v1.0"}]}`))
 	}))
 	defer server.Close()
 
@@ -38,6 +38,16 @@ func TestPredict(t *testing.T) {
 	}
 	if len(response.Predictions) != 1 || response.Predictions[0].SchemaVersion != 1 {
 		t.Fatalf("unexpected response: %+v", response)
+	}
+}
+
+func TestPredictionRequestRejectsDuplicateTypes(t *testing.T) {
+	request := PredictionRequest{
+		ObjectID:        1001,
+		PredictionTypes: []string{"fire_risk", "fire_risk"},
+	}
+	if err := request.Validate(); err == nil {
+		t.Fatal("expected duplicate prediction type error")
 	}
 }
 

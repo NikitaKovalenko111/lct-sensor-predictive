@@ -51,9 +51,6 @@ func (c *Consumer) Run(ctx context.Context) error {
 				c.logger.Warn("telemetry sent to dead-letter topic", "error", err, "offset", record.Offset)
 				return
 			}
-			if event.SchemaVersion == 0 {
-				event.SchemaVersion = contracts.SchemaVersion
-			}
 			if err := event.Validate(); err != nil {
 				if publishErr := retry.Do(ctx, c.logger, "publish telemetry dead letter", func() error {
 					return c.deadLetter.Publish(ctx, record, err)

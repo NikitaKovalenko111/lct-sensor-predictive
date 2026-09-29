@@ -19,6 +19,17 @@ interface DataContextValue {
 
 const DataContext = createContext<DataContextValue | null>(null)
 
+const PAGE_SIZE = 200
+
+async function loadAllPages<T>(loader: (offset: number) => Promise<{ items: T[] }>) {
+  const items: T[] = []
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const page = await loader(offset)
+    items.push(...page.items)
+    if (page.items.length < PAGE_SIZE) return items
+  }
+}
+
 function mergeObjects(
   registry: InfrastructureObject[],
   predictions: Prediction[],
@@ -52,12 +63,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setLoading(true)
     setError('')
     try {
-      const [incidentPage, predictionPage, objectPage] = await Promise.all([
-        api.listIncidents({ limit: 200 }), api.listPredictions({ limit: 200 }), api.listObjects(),
+      const [incidentItems, predictionItems, objectItems] = await Promise.all([
+        loadAllPages((offset) => api.listIncidents({ limit: PAGE_SIZE, offset })),
+        loadAllPages((offset) => api.listPredictions({ limit: PAGE_SIZE, offset })),
+        loadAllPages((offset) => api.listObjects('', PAGE_SIZE, offset)),
       ])
-      setIncidents(incidentPage.items)
-      setPredictions(predictionPage.items)
-      setObjects(mergeObjects(objectPage.items, predictionPage.items, incidentPage.items))
+      setIncidents(incidentItems)
+      setPredictions(predictionItems)
+      setObjects(mergeObjects(objectItems, predictionItems, incidentItems))
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Не удалось загрузить данные')
     } finally {
@@ -69,10 +82,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      void Promise.all([api.listPredictions({ limit: 200 }), api.listObjects()])
-        .then(([predictionPage, objectPage]) => {
-          setPredictions(predictionPage.items)
-          setObjects(mergeObjects(objectPage.items, predictionPage.items, incidents))
+      void Promise.all([
+        loadAllPages((offset) => api.listPredictions({ limit: PAGE_SIZE, offset })),
+        loadAllPages((offset) => api.listObjects('', PAGE_SIZE, offset)),
+      ])
+        .then(([predictionItems, objectItems]) => {
+          setPredictions(predictionItems)
+          setObjects(mergeObjects(objectItems, predictionItems, incidents))
         })
         .catch(() => undefined)
     }, 10_000)
@@ -81,16 +97,20 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const stream = createIncidentStream({
-      onIncident: (incident) => setIncidents((current) => {
-        const exists = current.some((item) => item.incident_id === incident.incident_id)
-        return exists
-          ? current.map((item) => item.incident_id === incident.incident_id ? incident : item)
-          : [incident, ...current]
-      }),
+      onIncident: (notification) => {
+        void api.getIncident(notification.incident_id).then((incident) => {
+          setIncidents((current) => {
+            const exists = current.some((item) => item.incident_id === incident.incident_id)
+            return exists
+              ? current.map((item) => item.incident_id === incident.incident_id ? incident : item)
+              : [incident, ...current]
+          })
+        }).catch(() => void refresh())
+      },
     })
     void stream.connect()
     return stream.close
-  }, [])
+  }, [refresh])
 
   const value = useMemo<DataContextValue>(() => ({
     incidents, predictions, objects, loading, error, refresh,

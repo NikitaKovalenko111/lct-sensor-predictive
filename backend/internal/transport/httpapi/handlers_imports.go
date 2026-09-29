@@ -10,15 +10,18 @@ import (
 
 func (s *Server) registerImportRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/imports", s.security.RequireRoles(s.listImports, auth.RoleAdmin, auth.RoleAnalyst))
-	mux.HandleFunc("GET /api/v1/imports/{import_id}", s.security.RequireRoles(s.getImport, auth.RoleAdmin, auth.RoleAnalyst))
+	mux.HandleFunc("GET /api/v1/imports/{import_id}", s.security.RequireRoles(requireUUIDPath("import_id", s.getImport), auth.RoleAdmin, auth.RoleAnalyst))
 }
 
 func (s *Server) listImports(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
+	limit, offset, ok := parsePagination(w, r)
+	if !ok {
+		return
+	}
 	items, err := s.imports.List(
 		r.Context(),
-		int(parseInt64(query.Get("limit"))),
-		int(parseInt64(query.Get("offset"))),
+		limit,
+		offset,
 	)
 	if err != nil {
 		s.logger.Error("list imports", "error", err)

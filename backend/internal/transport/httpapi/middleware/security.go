@@ -39,6 +39,15 @@ func (m *Security) RequireRoles(next http.HandlerFunc, roles ...string) http.Han
 			writeError(w, http.StatusUnauthorized, "invalid or expired access token")
 			return
 		}
+		if m.audit != nil {
+			user, err := m.audit.GetUserByID(r.Context(), claims.Subject)
+			if err != nil || !user.Active {
+				writeError(w, http.StatusUnauthorized, "user is inactive or no longer exists")
+				return
+			}
+			claims.Username = user.Username
+			claims.Role = user.Role
+		}
 		if _, ok := allowed[claims.Role]; !ok {
 			writeError(w, http.StatusForbidden, "insufficient permissions")
 			return
@@ -90,6 +99,12 @@ func (r *statusRecorder) WriteHeader(status int) {
 }
 
 func RequestIP(r *http.Request) string {
+	if forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-For"), ",")[0]); forwarded != "" {
+		return forwarded
+	}
+	if realIP := strings.TrimSpace(r.Header.Get("X-Real-IP")); realIP != "" {
+		return realIP
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err == nil {
 		return host

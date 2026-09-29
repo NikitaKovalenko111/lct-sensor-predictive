@@ -100,7 +100,7 @@ export function ObjectsPage() {
 
             <article className="panel">
               <div className="panel__head"><div><p className="eyebrow">Телеметрия</p><h2>Последние события</h2></div><Activity size={19} /></div>
-              <div className="compact-table"><div className="compact-table__head"><span>Время</span><span>Датчик</span><span>Значение</span><span>Статус</span></div>{events.slice(-6).reverse().map((event) => <div className="compact-table__row" key={event.event_id}><span>{formatDateTime(event.timestamp)}</span><span>{event.sensor_type}</span><strong>{event.value}</strong><span className={event.is_alarm ? 'table-alarm' : 'table-normal'}>{event.is_alarm ? 'Тревога' : 'Норма'}</span></div>)}</div>
+              <div className="compact-table"><div className="compact-table__head"><span>Время</span><span>Датчик</span><span>Значение</span><span>Статус</span></div>{events.slice(0, 6).map((event) => <div className="compact-table__row" key={event.event_id}><span>{formatDateTime(event.timestamp)}</span><span>{event.sensor_type}</span><strong>{event.value}</strong><span className={event.is_alarm ? 'table-alarm' : 'table-normal'}>{event.is_alarm ? 'Тревога' : 'Норма'}</span></div>)}</div>
             </article>
           </>}
         </div>

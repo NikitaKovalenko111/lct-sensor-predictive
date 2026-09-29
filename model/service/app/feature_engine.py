@@ -109,6 +109,34 @@ class FeatureEngine:
             f[f"temp_max_{h}h"] = float(temp.loc[w, "num"].max()) if w.sum() else 0.0
             f[f"baseline_temp_{h}h"] = float(temp.loc[wb, "num"].mean()) if wb.sum() else 0.0
 
+        temp6 = temp.loc[(temp["ts"] >= ts - 6 * H) & (temp["ts"] < ts)].copy()
+        temp24 = temp.loc[(temp["ts"] >= ts - 24 * H) & (temp["ts"] < ts)].copy()
+        f["temp_std_6h"] = float(temp6["num"].std(ddof=0)) if len(temp6) > 1 else 0.0
+        f["temp_range_6h"] = float(temp6["num"].max() - temp6["num"].min()) if len(temp6) else 0.0
+        f["temp_std_24h"] = float(temp24["num"].std(ddof=0)) if len(temp24) > 1 else 0.0
+        if len(temp6) > 1:
+            elapsed_hours = (temp6["ts"] - temp6["ts"].min()).dt.total_seconds() / 3600
+            f["temp_trend_6h"] = float(np.polyfit(elapsed_hours, temp6["num"], 1)[0]) if elapsed_hours.nunique() > 1 else 0.0
+        else:
+            f["temp_trend_6h"] = 0.0
+
+        def hourly_stats(mask):
+            window = df.loc[mask & (df["ts"] >= ts - 24 * H) & (df["ts"] < ts), "ts"]
+            counts = window.dt.floor("h").value_counts()
+            hourly = pd.Series(0.0, index=pd.date_range(ts - 24 * H, periods=24, freq="h"))
+            for hour, count in counts.items():
+                if hour in hourly.index:
+                    hourly.loc[hour] = float(count)
+            return float(hourly.std(ddof=0)), float(hourly.max()), int((hourly > 0).sum())
+
+        alarm_std, alarm_peak, alarm_active = hourly_stats(alarms)
+        f["alarms_std_24h"] = alarm_std
+        f["alarms_peak_24h"] = alarm_peak
+        f["alarms_active_hours_24h"] = alarm_active
+        motion_std, motion_peak, _ = hourly_stats(motion)
+        f["motion_std_24h"] = motion_std
+        f["motion_peak_24h"] = motion_peak
+
         # Предвестники
         precursors = {
             "flood_24h": "Датчик затопления", "hatch_24h": "КД Люк",

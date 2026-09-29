@@ -246,7 +246,10 @@ func (s *Service) persistAndPublishEvents(ctx context.Context, events []contract
 	if err != nil {
 		return err
 	}
-	return s.publisher.PublishBatch(ctx, inserted)
+	if err := s.publisher.PublishBatch(ctx, inserted); err != nil {
+		return err
+	}
+	return s.events.MarkPublishedBatch(ctx, inserted)
 }
 
 func latestEventTimestamp(path string) (time.Time, error) {

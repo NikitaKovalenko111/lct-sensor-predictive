@@ -24,11 +24,16 @@ export function IncidentsPage() {
   const [comment, setComment] = useState('')
   const [workOrderOpen, setWorkOrderOpen] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [detailError, setDetailError] = useState('')
   const selectedId = params.get('selected')
 
   useEffect(() => {
-    if (!selectedId) { setDetail(null); return }
-    void api.getIncident(selectedId).then(setDetail)
+    if (!selectedId) { setDetail(null); setDetailError(''); return }
+    setDetail(null)
+    setDetailError('')
+    void api.getIncident(selectedId).then(setDetail).catch((cause) => {
+      setDetailError(cause instanceof Error ? cause.message : 'Не удалось загрузить инцидент')
+    })
   }, [selectedId, incidents])
 
   const filtered = useMemo(() => incidents.filter((incident) => {
@@ -80,6 +85,7 @@ export function IncidentsPage() {
 
       {selectedId && <button className="drawer-backdrop" onClick={close} aria-label="Закрыть карточку" />}
       <aside className={`incident-drawer ${selectedId ? 'incident-drawer--open' : ''}`}>
+        {detailError && <div className="global-error">{detailError}</div>}
         {detail && <>
           <header className="drawer-head"><div><p className="eyebrow">Карточка инцидента</p><h2>{detail.title}</h2></div><button className="icon-button" onClick={close}><X size={20} /></button></header>
           <div className="drawer-body">

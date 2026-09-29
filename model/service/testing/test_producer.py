@@ -41,6 +41,7 @@ OBJECTS = [9999, 8888, 7777]
 def ev(obj, sensor_type, value, alarm, ts, system="Охранная подсистема"):
     """Фабрика события датчика в формате schemas.SensorEvent."""
     return {
+        "schema_version": 1,
         "event_id": str(uuid.uuid4()),
         "object_id": obj,
         "channel_id": f"ch_{obj}_{sensor_type}",

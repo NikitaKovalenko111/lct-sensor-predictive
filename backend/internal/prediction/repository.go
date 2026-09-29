@@ -3,12 +3,16 @@ package prediction
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/contracts"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+var ErrPredictionConflict = errors.New("prediction_id conflicts with immutable prediction fields")
 
 type Repository struct {
 	pool *pgxpool.Pool
@@ -16,6 +20,48 @@ type Repository struct {
 
 func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
+}
+
+func (r *Repository) Pool() *pgxpool.Pool { return r.pool }
+
+func (r *Repository) UpsertTx(ctx context.Context, tx pgx.Tx, prediction contracts.Prediction) (string, error) {
+	if err := prediction.Validate(); err != nil {
+		return "", err
+	}
+	if prediction.PredictionID == "" {
+		return "", fmt.Errorf("prediction_id is required for transactional processing")
+	}
+	var predictionID string
+	err := tx.QueryRow(ctx, `
+		INSERT INTO predictions (
+			prediction_id, object_id, prediction_type, risk_score, risk_level,
+			is_alert, predicted_at, features_used, model_version, schema_version
+		) VALUES (
+			$1::uuid, $2, $3, $4, $5,
+			$6, $7, $8, $9, $10
+		)
+		ON CONFLICT (prediction_id) DO UPDATE SET
+			risk_score = EXCLUDED.risk_score,
+			risk_level = EXCLUDED.risk_level,
+			is_alert = EXCLUDED.is_alert,
+			features_used = EXCLUDED.features_used,
+			updated_at = now()
+		WHERE predictions.object_id = EXCLUDED.object_id
+		  AND predictions.prediction_type = EXCLUDED.prediction_type
+		  AND predictions.predicted_at = EXCLUDED.predicted_at
+		  AND predictions.model_version = EXCLUDED.model_version
+		  AND predictions.schema_version = EXCLUDED.schema_version
+		RETURNING prediction_id::text
+	`, prediction.PredictionID, prediction.ObjectID, prediction.PredictionType,
+		prediction.RiskScore, prediction.RiskLevel, prediction.IsAlert, prediction.PredictedAt,
+		prediction.FeaturesUsed, prediction.ModelVersion, prediction.SchemaVersion).Scan(&predictionID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrPredictionConflict
+	}
+	if err != nil {
+		return "", fmt.Errorf("upsert prediction in transaction: %w", err)
+	}
+	return predictionID, nil
 }
 
 func (r *Repository) Upsert(ctx context.Context, prediction contracts.Prediction) (string, error) {
@@ -44,11 +90,19 @@ func (r *Repository) upsertByID(ctx context.Context, prediction contracts.Predic
 			is_alert = EXCLUDED.is_alert,
 			features_used = EXCLUDED.features_used,
 			updated_at = now()
+		WHERE predictions.object_id = EXCLUDED.object_id
+		  AND predictions.prediction_type = EXCLUDED.prediction_type
+		  AND predictions.predicted_at = EXCLUDED.predicted_at
+		  AND predictions.model_version = EXCLUDED.model_version
+		  AND predictions.schema_version = EXCLUDED.schema_version
 		RETURNING prediction_id::text
 	`, prediction.PredictionID, prediction.ObjectID, prediction.PredictionType,
 		prediction.RiskScore, prediction.RiskLevel, prediction.IsAlert, prediction.PredictedAt,
 		prediction.FeaturesUsed, prediction.ModelVersion, prediction.SchemaVersion).Scan(&predictionID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrPredictionConflict
+		}
 		return "", fmt.Errorf("upsert prediction by id: %w", err)
 	}
 	return predictionID, nil

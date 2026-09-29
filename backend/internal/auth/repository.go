@@ -109,6 +109,42 @@ func (r *Repository) ListUsers(ctx context.Context, limit, offset int) ([]User, 
 	return items, nil
 }
 
+func (r *Repository) GetUserByID(ctx context.Context, userID string) (User, error) {
+	var user User
+	err := r.pool.QueryRow(ctx, `
+		SELECT user_id::text, username, role, active, created_at, last_login_at
+		FROM users WHERE user_id = $1::uuid
+	`, userID).Scan(
+		&user.UserID, &user.Username, &user.Role, &user.Active,
+		&user.CreatedAt, &user.LastLoginAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return User{}, ErrUserNotFound
+	}
+	if err != nil {
+		return User{}, fmt.Errorf("get user: %w", err)
+	}
+	return user, nil
+}
+
+func (r *Repository) FindActiveUserByUsername(ctx context.Context, username string) (User, error) {
+	var user User
+	err := r.pool.QueryRow(ctx, `
+		SELECT user_id::text, username, role, active, created_at, last_login_at
+		FROM users WHERE lower(username) = $1 AND active = true
+	`, normalizeUsername(username)).Scan(
+		&user.UserID, &user.Username, &user.Role, &user.Active,
+		&user.CreatedAt, &user.LastLoginAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return User{}, ErrUserNotFound
+	}
+	if err != nil {
+		return User{}, fmt.Errorf("find active user: %w", err)
+	}
+	return user, nil
+}
+
 func (r *Repository) UpdateUserRole(ctx context.Context, userID, role string) (User, error) {
 	if !ValidRole(role) {
 		return User{}, fmt.Errorf("invalid role %q", role)

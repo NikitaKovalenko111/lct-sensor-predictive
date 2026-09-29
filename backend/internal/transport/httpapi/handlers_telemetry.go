@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/NikitaKovalenko111/lct-sensor-predictive/backend/internal/auth"
@@ -19,12 +18,8 @@ func (s *Server) registerTelemetryRoutes(mux *http.ServeMux) {
 }
 
 func (s *Server) publishSensorEvent(w http.ResponseWriter, r *http.Request) {
-	defer r.Body.Close()
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
-	decoder.DisallowUnknownFields()
 	var event contracts.SensorEvent
-	if err := decoder.Decode(&event); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+	if !decodeJSON(w, r, &event) {
 		return
 	}
 	if err := s.publisher.Publish(r.Context(), event); err != nil {
@@ -37,12 +32,16 @@ func (s *Server) publishSensorEvent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listSensorEvents(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
+	limit, offset, ok := parsePagination(w, r)
+	if !ok {
+		return
+	}
 	items, err := s.telemetry.List(r.Context(), telemetry.ListFilter{
 		ObjectID:  parseInt64(query.Get("object_id")),
 		ChannelID: query.Get("channel_id"),
 		AlarmOnly: query.Get("alarm_only") == "true",
-		Limit:     int(parseInt64(query.Get("limit"))),
-		Offset:    int(parseInt64(query.Get("offset"))),
+		Limit:     limit,
+		Offset:    offset,
 	})
 	if err != nil {
 		s.logger.Error("list sensor events", "error", err)

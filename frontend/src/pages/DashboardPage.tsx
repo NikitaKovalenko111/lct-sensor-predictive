@@ -1,5 +1,5 @@
 import { Activity, ArrowUpRight, Building2, Clock3, Flame, RefreshCw, ShieldAlert, Siren } from 'lucide-react'
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { RiskBadge } from '../components/common/RiskBadge'
 import { PageHeader } from '../components/common/PageHeader'
@@ -66,7 +66,7 @@ export function DashboardPage() {
     ? formatPercent(items.reduce((sum, item) => sum + item.risk_score, 0) / items.length)
     : '—'
 
-  const openIncident = (incident: Incident) => navigate(`/incidents?selected=${incident.incident_id}`)
+  const openIncident = useCallback((incident: Incident) => navigate(`/incidents?selected=${incident.incident_id}`), [navigate])
 
   return (
     <div className="page">

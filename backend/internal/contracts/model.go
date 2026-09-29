@@ -28,6 +28,9 @@ type SensorEvent struct {
 }
 
 func (e SensorEvent) Validate() error {
+	if e.SchemaVersion != SchemaVersion {
+		return fmt.Errorf("unsupported schema_version %d", e.SchemaVersion)
+	}
 	if e.EventID == "" {
 		return fmt.Errorf("event_id is required")
 	}
@@ -93,6 +96,9 @@ func parseModelTime(value string) (time.Time, error) {
 }
 
 func (p Prediction) Validate() error {
+	if p.SchemaVersion != SchemaVersion {
+		return fmt.Errorf("unsupported schema_version %d", p.SchemaVersion)
+	}
 	if p.ObjectID <= 0 {
 		return fmt.Errorf("object_id must be positive")
 	}

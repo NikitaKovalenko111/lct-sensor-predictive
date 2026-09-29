@@ -65,6 +65,40 @@ func (r *Repository) CreateFromPrediction(ctx context.Context, predictionID stri
 	return &incident, nil
 }
 
+func (r *Repository) CreateFromPredictionTx(ctx context.Context, tx pgx.Tx, predictionID string) (*Incident, error) {
+	row := tx.QueryRow(ctx, `
+		INSERT INTO incidents (
+			prediction_id, object_id, incident_type, risk_score, risk_level, title, description
+		)
+		SELECT prediction_id, object_id, prediction_type, risk_score, risk_level,
+		       CASE prediction_type
+		           WHEN 'fire_risk' THEN 'Высокий риск пожара'
+		           WHEN 'equipment_failure' THEN 'Риск отказа оборудования'
+		           WHEN 'nsd_event' THEN 'Возможное несанкционированное действие'
+		           ELSE 'Высокий риск несанкционированного действия'
+		       END,
+		       'Инцидент автоматически создан по прогнозу модели'
+		FROM predictions
+		WHERE prediction_id = $1::uuid
+		  AND (is_alert IS TRUE OR (is_alert IS NULL AND risk_level IN ('high', 'critical')))
+		ON CONFLICT (prediction_id) DO NOTHING
+		RETURNING incident_id::text, prediction_id::text, object_id, incident_type,
+		          risk_score, risk_level, status, title, description,
+		          COALESCE(assigned_to, ''), created_at, updated_at, resolved_at
+	`, predictionID)
+	incident, err := scanIncident(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("create incident in prediction transaction: %w", err)
+	}
+	if err := notify(ctx, tx, "incident.created", incident.IncidentID); err != nil {
+		return nil, err
+	}
+	return &incident, nil
+}
+
 func (r *Repository) List(ctx context.Context, filter ListFilter) ([]Incident, error) {
 	if filter.Limit <= 0 || filter.Limit > 200 {
 		filter.Limit = 50
@@ -152,7 +186,12 @@ func (r *Repository) Get(ctx context.Context, id string) (Detail, error) {
 }
 
 func (r *Repository) Assign(ctx context.Context, id, assignee string) (Incident, error) {
-	incident, err := scanIncident(r.pool.QueryRow(ctx, `
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return Incident{}, fmt.Errorf("begin assign incident transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	incident, err := scanIncident(tx.QueryRow(ctx, `
 		UPDATE incidents
 		SET assigned_to = $2,
 		    status = CASE WHEN status = 'new' THEN 'in_review' ELSE status END,
@@ -168,8 +207,11 @@ func (r *Repository) Assign(ctx context.Context, id, assignee string) (Incident,
 	if err != nil {
 		return Incident{}, fmt.Errorf("assign incident: %w", err)
 	}
-	if err := r.publish(ctx, "incident.updated", id); err != nil {
+	if err := notify(ctx, tx, "incident.updated", id); err != nil {
 		return Incident{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Incident{}, fmt.Errorf("commit assign incident transaction: %w", err)
 	}
 	return incident, nil
 }
@@ -215,7 +257,12 @@ func (r *Repository) AddDecision(ctx context.Context, id, decision, actor, comme
 }
 
 func (r *Repository) Resolve(ctx context.Context, id string) (Incident, error) {
-	incident, err := scanIncident(r.pool.QueryRow(ctx, `
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return Incident{}, fmt.Errorf("begin resolve incident transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	incident, err := scanIncident(tx.QueryRow(ctx, `
 		UPDATE incidents SET status = 'resolved', resolved_at = now(), updated_at = now()
 		WHERE incident_id = $1::uuid AND status NOT IN ('resolved', 'dismissed')
 		RETURNING incident_id::text, prediction_id::text, object_id, incident_type,
@@ -228,8 +275,11 @@ func (r *Repository) Resolve(ctx context.Context, id string) (Incident, error) {
 	if err != nil {
 		return Incident{}, fmt.Errorf("resolve incident: %w", err)
 	}
-	if err := r.publish(ctx, "incident.updated", id); err != nil {
+	if err := notify(ctx, tx, "incident.updated", id); err != nil {
 		return Incident{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Incident{}, fmt.Errorf("commit resolve incident transaction: %w", err)
 	}
 	return incident, nil
 }
@@ -258,13 +308,6 @@ func (r *Repository) CreateWorkOrder(ctx context.Context, id, title, description
 
 func (r *Repository) Pool() *pgxpool.Pool {
 	return r.pool
-}
-
-func (r *Repository) publish(ctx context.Context, event, id string) error {
-	if _, err := r.pool.Exec(ctx, `SELECT pg_notify($1, json_build_object('event', $2::text, 'incident_id', $3::text)::text)`, notificationChannel, event, id); err != nil {
-		return fmt.Errorf("publish incident notification: %w", err)
-	}
-	return nil
 }
 
 type rowScanner interface {

@@ -148,6 +148,7 @@ services:
             KAFKA_BOOTSTRAP_SERVERS: kafka:9092
             KAFKA_INPUT_TOPIC: sensor.events.v1
             KAFKA_OUTPUT_TOPIC: predictions.v1
+            KAFKA_DLQ_TOPIC: sensor.events.dlq.v1
             KAFKA_CONSUMER_GROUP: model-service.v1
             DATABASE_URL: postgresql://app:app@postgres:5432/sensor_predictive
             MODEL_ROOT: /model
@@ -178,21 +179,11 @@ services:
             retries: 20
         profiles: ["model"]
 
-    mock-model:
-        build:
-            context: .
-        entrypoint: ["/app/mock-model"]
-        environment:
-            <<: *backend-environment
-        depends_on:
-            kafka-init:
-                condition: service_completed_successfully
-        profiles: ["mock"]
-
     simulator:
         build:
             context: .
-        entrypoint: ["/app/simulator", "-interval", "5s", "-registry-refresh", "1m"]
+        entrypoint:
+            ["/app/simulator", "-interval", "5s", "-registry-refresh", "1m"]
         environment:
             <<: *backend-environment
         depends_on:

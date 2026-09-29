@@ -62,11 +62,16 @@ y = df[TARGET_COL].astype(int)
 # ============================================================
 # СПЛИТ
 # ============================================================
-X_train, X_test, y_train, y_test = train_test_split(
+X_train_val, X_test, y_train_val, y_test = train_test_split(
     X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE, stratify=y
+)
+X_train, X_val, y_train, y_val = train_test_split(
+    X_train_val, y_train_val, test_size=0.2,
+    random_state=RANDOM_STATE, stratify=y_train_val
 )
 print(f"\n📈 Сплит ({TEST_SIZE:.0%} тест):")
 print(f"   Train: {len(X_train):,} ({y_train.mean():.4f} позитивных)")
+print(f"   Validation: {len(X_val):,} ({y_val.mean():.4f} позитивных)")
 print(f"   Test:  {len(X_test):,} ({y_test.mean():.4f} позитивных)")
 
 # ============================================================
@@ -85,7 +90,7 @@ model = lgb.LGBMClassifier(
 )
 model.fit(
     X_train, y_train,
-    eval_X=X_test, eval_y=y_test,
+    eval_set=[(X_val, y_val)],
     eval_metric='average_precision',
     callbacks=[lgb.early_stopping(100, verbose=False), lgb.log_evaluation(100)]
 )
@@ -94,22 +99,15 @@ print(f"\n✅ Модель обучена за {model.best_iteration_} итер�
 # ============================================================
 # МЕТРИКИ (подбор порога по макс F1)
 # ============================================================
-y_test_proba = model.predict_proba(X_test)[:, 1]
-ap_score = average_precision_score(y_test, y_test_proba)
-auc_score = roc_auc_score(y_test, y_test_proba)
-
-print(f"\n📈 ОБЩИЕ МЕТРИКИ:")
-print(f"   PR-AUC:   {ap_score:.4f}")
-print(f"   ROC-AUC:  {auc_score:.4f}")
-
-precision, recall, thresholds = precision_recall_curve(y_test, y_test_proba)
+y_val_proba = model.predict_proba(X_val)[:, 1]
+precision, recall, thresholds = precision_recall_curve(y_val, y_val_proba)
 
 # Подбор порога по макс F1
 f1_scores = []
 for t in thresholds:
-    y_pred_t = (y_test_proba >= t).astype(int)
-    p_t = precision_score(y_test, y_pred_t, zero_division=0)
-    r_t = recall_score(y_test, y_pred_t, zero_division=0)
+    y_pred_t = (y_val_proba >= t).astype(int)
+    p_t = precision_score(y_val, y_pred_t, zero_division=0)
+    r_t = recall_score(y_val, y_pred_t, zero_division=0)
     f1_t = 2 * p_t * r_t / (p_t + r_t) if (p_t + r_t) > 0 else 0
     f1_scores.append(f1_t)
 
@@ -122,6 +120,9 @@ print(f"   Recall:    {recall[best_f1_idx]:.3f}")
 print(f"   F1:        {f1_scores[best_f1_idx]:.3f}")
 
 # Итоговые метрики
+y_test_proba = model.predict_proba(X_test)[:, 1]
+ap_score = average_precision_score(y_test, y_test_proba)
+auc_score = roc_auc_score(y_test, y_test_proba)
 y_test_pred = (y_test_proba >= best_threshold).astype(int)
 test_precision = precision_score(y_test, y_test_pred, zero_division=0)
 test_recall = recall_score(y_test, y_test_pred, zero_division=0)

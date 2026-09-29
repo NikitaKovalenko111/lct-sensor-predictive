@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -18,29 +19,33 @@ func (s *Server) registerIncidentRoutes(mux *http.ServeMux) {
 	writeRoles := []string{auth.RoleAdmin, auth.RoleDispatcher}
 	mux.HandleFunc("GET /api/v1/incidents", s.security.RequireRoles(s.listIncidents, readRoles...))
 	mux.HandleFunc("GET /api/v1/incidents/stream", s.security.RequireRoles(s.streamIncidents, readRoles...))
-	mux.HandleFunc("GET /api/v1/incidents/{incident_id}", s.security.RequireRoles(s.getIncident, readRoles...))
+	mux.HandleFunc("GET /api/v1/incidents/{incident_id}", s.security.RequireRoles(requireUUIDPath("incident_id", s.getIncident), readRoles...))
 	mux.HandleFunc("PATCH /api/v1/incidents/{incident_id}/assignment", s.security.RequireRoles(
-		s.security.AuditMutation("incident.assign", "incident", s.assignIncident), writeRoles...,
+		requireUUIDPath("incident_id", s.security.AuditMutation("incident.assign", "incident", s.assignIncident)), writeRoles...,
 	))
 	mux.HandleFunc("POST /api/v1/incidents/{incident_id}/decisions", s.security.RequireRoles(
-		s.security.AuditMutation("incident.decide", "incident", s.addIncidentDecision), writeRoles...,
+		requireUUIDPath("incident_id", s.security.AuditMutation("incident.decide", "incident", s.addIncidentDecision)), writeRoles...,
 	))
 	mux.HandleFunc("POST /api/v1/incidents/{incident_id}/resolve", s.security.RequireRoles(
-		s.security.AuditMutation("incident.resolve", "incident", s.resolveIncident), writeRoles...,
+		requireUUIDPath("incident_id", s.security.AuditMutation("incident.resolve", "incident", s.resolveIncident)), writeRoles...,
 	))
 	mux.HandleFunc("POST /api/v1/incidents/{incident_id}/work-order-draft", s.security.RequireRoles(
-		s.security.AuditMutation("work_order.upsert_draft", "incident", s.createWorkOrderDraft), writeRoles...,
+		requireUUIDPath("incident_id", s.security.AuditMutation("work_order.upsert_draft", "incident", s.createWorkOrderDraft)), writeRoles...,
 	))
 }
 
 func (s *Server) listIncidents(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
+	limit, offset, ok := parsePagination(w, r)
+	if !ok {
+		return
+	}
 	items, err := s.incidents.List(r.Context(), incidents.ListFilter{
 		ObjectID:  parseInt64(query.Get("object_id")),
 		Status:    query.Get("status"),
 		RiskLevel: query.Get("risk_level"),
-		Limit:     int(parseInt64(query.Get("limit"))),
-		Offset:    int(parseInt64(query.Get("offset"))),
+		Limit:     limit,
+		Offset:    offset,
 	})
 	if err != nil {
 		s.logger.Error("list incidents", "error", err)
@@ -70,7 +75,17 @@ func (s *Server) assignIncident(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "assigned_to is required")
 		return
 	}
-	item, err := s.incidents.Assign(r.Context(), r.PathValue("incident_id"), request.AssignedTo)
+	assignee, err := s.authRepository.FindActiveUserByUsername(r.Context(), request.AssignedTo)
+	if errors.Is(err, auth.ErrUserNotFound) {
+		writeError(w, http.StatusBadRequest, "assigned user does not exist or is inactive")
+		return
+	}
+	if err != nil {
+		s.logger.Error("find incident assignee", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to validate assigned user")
+		return
+	}
+	item, err := s.incidents.Assign(r.Context(), r.PathValue("incident_id"), assignee.Username)
 	if s.writeIncidentError(w, err) {
 		return
 	}
@@ -86,17 +101,17 @@ func (s *Server) addIncidentDecision(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &request) {
 		return
 	}
-	request.Actor = strings.TrimSpace(request.Actor)
+	claims, ok := auth.ClaimsFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authenticated user is required")
+		return
+	}
 	if !incidents.ValidDecision(request.Decision) {
 		writeError(w, http.StatusBadRequest, "invalid decision")
 		return
 	}
-	if request.Actor == "" {
-		writeError(w, http.StatusBadRequest, "actor is required")
-		return
-	}
 	item, err := s.incidents.AddDecision(
-		r.Context(), r.PathValue("incident_id"), request.Decision, request.Actor, request.Comment,
+		r.Context(), r.PathValue("incident_id"), request.Decision, claims.Username, request.Comment,
 	)
 	if s.writeIncidentError(w, err) {
 		return
@@ -207,6 +222,10 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return false
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "request body must contain a single JSON object")
 		return false
 	}
 	return true

@@ -55,9 +55,6 @@ func (c *Consumer) Run(ctx context.Context) error {
 				c.logger.Warn("prediction sent to dead-letter topic", "error", cause, "offset", record.Offset)
 				return
 			}
-			if message.SchemaVersion == 0 {
-				message.SchemaVersion = contracts.SchemaVersion
-			}
 			if err := message.Validate(); err != nil {
 				if publishErr := retry.Do(ctx, c.logger, "publish prediction dead letter", func() error {
 					return c.deadLetter.Publish(ctx, record, err)
@@ -71,14 +68,34 @@ func (c *Consumer) Run(ctx context.Context) error {
 			var predictionID string
 			var incident *incidents.Incident
 			if err := retry.Do(ctx, c.logger, "persist prediction and incident", func() error {
-				var err error
-				predictionID, err = c.repository.Upsert(ctx, message)
+				tx, err := c.repository.Pool().Begin(ctx)
 				if err != nil {
 					return err
 				}
-				incident, err = c.incidents.CreateFromPrediction(ctx, predictionID)
-				return err
+				defer func() { _ = tx.Rollback(ctx) }()
+				predictionID, err = c.repository.UpsertTx(ctx, tx, message)
+				if err != nil {
+					if errors.Is(err, ErrPredictionConflict) {
+						return retry.Permanent(err)
+					}
+					return err
+				}
+				incident, err = c.incidents.CreateFromPredictionTx(ctx, tx, predictionID)
+				if err != nil {
+					return err
+				}
+				return tx.Commit(ctx)
 			}); err != nil {
+				if errors.Is(err, ErrPredictionConflict) {
+					if publishErr := retry.Do(ctx, c.logger, "publish conflicting prediction dead letter", func() error {
+						return c.deadLetter.Publish(ctx, record, err)
+					}); publishErr != nil {
+						handlerErr = publishErr
+						return
+					}
+					c.logger.Warn("conflicting prediction sent to dead-letter topic", "error", err, "offset", record.Offset)
+					return
+				}
 				handlerErr = err
 				return
 			}

@@ -28,6 +28,7 @@ func (r PredictionRequest) Validate() error {
 	if r.ObjectID <= 0 {
 		return fmt.Errorf("object_id must be positive")
 	}
+	seen := make(map[string]struct{}, len(r.PredictionTypes))
 	for _, predictionType := range r.PredictionTypes {
 		switch predictionType {
 		case contracts.PredictionTypeFireRisk,
@@ -37,6 +38,10 @@ func (r PredictionRequest) Validate() error {
 		default:
 			return fmt.Errorf("invalid prediction_type %q", predictionType)
 		}
+		if _, exists := seen[predictionType]; exists {
+			return fmt.Errorf("duplicate prediction_type %q", predictionType)
+		}
+		seen[predictionType] = struct{}{}
 	}
 	return nil
 }
@@ -104,9 +109,6 @@ func (c *Client) Predict(ctx context.Context, request PredictionRequest) (Predic
 	}
 	for index := range response.Predictions {
 		prediction := &response.Predictions[index]
-		if prediction.SchemaVersion == 0 {
-			prediction.SchemaVersion = contracts.SchemaVersion
-		}
 		if prediction.ObjectID != request.ObjectID {
 			return PredictionResponse{}, fmt.Errorf("model response object_id does not match request")
 		}

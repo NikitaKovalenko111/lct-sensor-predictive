@@ -60,14 +60,14 @@ export interface PredictiveApi {
   addDecision(id: string, payload: { decision: IncidentDecisionType; actor: string; comment: string }): Promise<IncidentDecision>
   resolveIncident(id: string): Promise<Incident>
   createWorkOrder(id: string, payload: { title: string; description: string; priority: WorkOrderPriority }): Promise<WorkOrderDraft>
-  listObjects(search?: string): Promise<Page<InfrastructureObject>>
+  listObjects(search?: string, limit?: number, offset?: number): Promise<Page<InfrastructureObject>>
   listChannels(objectId?: number): Promise<Page<Channel>>
   listSensorEvents(objectId?: number): Promise<Page<SensorEvent>>
-  listUsers(): Promise<Page<User>>
+  listUsers(limit?: number, offset?: number): Promise<Page<User>>
   createUser(payload: { username: string; password: string; role: Role }): Promise<User>
   updateUserRole(userId: string, role: Role): Promise<User>
   deleteUser(userId: string): Promise<void>
-  listAudit(): Promise<Page<AuditEntry>>
+  listAudit(limit?: number, offset?: number): Promise<Page<AuditEntry>>
 }
 
 const delay = (ms = 180) => new Promise((resolve) => window.setTimeout(resolve, ms))
@@ -142,8 +142,11 @@ class MockApi implements PredictiveApi {
   async requestPrediction(objectId: number, predictionTypes: PredictionType[]) {
     await delay(650)
     const state = getMockState()
-    const source = state.predictions.filter((item) => item.object_id === objectId && predictionTypes.includes(item.prediction_type))
-    const predictions = source.length ? source : state.predictions.filter((item) => predictionTypes.includes(item.prediction_type)).slice(0, 2).map((item) => ({ ...item, object_id: objectId }))
+    const requested = predictionTypes.length
+      ? predictionTypes
+      : ['fire_risk', 'nsd_event', 'nsd_risk', 'equipment_failure'] satisfies PredictionType[]
+    const source = state.predictions.filter((item) => item.object_id === objectId && requested.includes(item.prediction_type))
+    const predictions = source.length ? source : state.predictions.filter((item) => requested.includes(item.prediction_type)).slice(0, 2).map((item) => ({ ...item, object_id: objectId }))
     return { predictions: clone(predictions) }
   }
 
@@ -289,10 +292,10 @@ class LiveApi implements PredictiveApi {
   addDecision(id: string, payload: { decision: IncidentDecisionType; actor: string; comment: string }) { return httpClient.request<IncidentDecision>(`/api/v1/incidents/${id}/decisions`, { method: 'POST', body: JSON.stringify(payload) }) }
   resolveIncident(id: string) { return httpClient.request<Incident>(`/api/v1/incidents/${id}/resolve`, { method: 'POST' }) }
   createWorkOrder(id: string, payload: { title: string; description: string; priority: WorkOrderPriority }) { return httpClient.request<WorkOrderDraft>(`/api/v1/incidents/${id}/work-order-draft`, { method: 'POST', body: JSON.stringify(payload) }) }
-  listObjects(search = '') { return httpClient.request<Page<InfrastructureObject>>(`/api/v1/objects${buildQuery({ search })}`) }
+  listObjects(search = '', limit?: number, offset?: number) { return httpClient.request<Page<InfrastructureObject>>(`/api/v1/objects${buildQuery({ search, limit, offset })}`) }
   listChannels(objectId?: number) { return httpClient.request<Page<Channel>>(`/api/v1/channels${buildQuery({ object_id: objectId })}`) }
   listSensorEvents(objectId?: number) { return httpClient.request<Page<SensorEvent>>(`/api/v1/sensor-events${buildQuery({ object_id: objectId })}`) }
-  listUsers() { return httpClient.request<Page<User>>('/api/v1/users') }
+  listUsers(limit?: number, offset?: number) { return httpClient.request<Page<User>>(`/api/v1/users${buildQuery({ limit, offset })}`) }
   createUser(payload: { username: string; password: string; role: Role }) { return httpClient.request<User>('/api/v1/users', { method: 'POST', body: JSON.stringify(payload) }) }
   updateUserRole(userId: string, role: Role) {
     return httpClient.request<User>(`/api/v1/users/${userId}`, { method: 'PATCH', body: JSON.stringify({ role }) })
@@ -300,7 +303,7 @@ class LiveApi implements PredictiveApi {
   deleteUser(userId: string) {
     return httpClient.request<void>(`/api/v1/users/${userId}`, { method: 'DELETE' })
   }
-  listAudit() { return httpClient.request<Page<AuditEntry>>('/api/v1/audit-logs') }
+  listAudit(limit?: number, offset?: number) { return httpClient.request<Page<AuditEntry>>(`/api/v1/audit-logs${buildQuery({ limit, offset })}`) }
 }
 
 export const api: PredictiveApi = apiRuntime.mode === 'live' ? new LiveApi() : new MockApi()

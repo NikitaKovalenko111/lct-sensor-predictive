@@ -1,8 +1,12 @@
-import type { Incident } from '../types/api'
 import { accessTokenStore, apiRuntime } from './runtime'
 
+export interface IncidentNotification {
+  event: 'incident.created' | 'incident.updated'
+  incident_id: string
+}
+
 export interface IncidentStreamHandlers {
-  onIncident: (incident: Incident) => void
+  onIncident: (notification: IncidentNotification) => void
   onError?: (error: Error) => void
   onReady?: () => void
 }
@@ -33,7 +37,12 @@ export function createIncidentStream(handlers: IncidentStreamHandlers) {
             const event = chunk.match(/^event:\s*(.+)$/m)?.[1]
             const data = chunk.match(/^data:\s*(.+)$/m)?.[1]
             if (event === 'ready') handlers.onReady?.()
-            if (event === 'incident' && data) handlers.onIncident(JSON.parse(data) as Incident)
+            if (event === 'incident' && data) {
+              const notification = JSON.parse(data) as Partial<IncidentNotification>
+              if (notification.incident_id && notification.event) {
+                handlers.onIncident(notification as IncidentNotification)
+              }
+            }
           })
         }
       } catch (cause) {

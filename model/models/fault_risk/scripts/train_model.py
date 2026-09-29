@@ -58,15 +58,21 @@ print(f"\n✅ Используем {len(FEATURES)} фичей")
 # СПЛИТ
 # ============================================================
 print(f"\n📈 Временной сплит (граница {SPLIT_YEAR}):")
-train_mask = df['year'] < SPLIT_YEAR
+train_mask = df['year'] < SPLIT_YEAR - 1
+validation_mask = df['year'] == SPLIT_YEAR - 1
 test_mask = df['year'] >= SPLIT_YEAR
+if not train_mask.any() or not validation_mask.any() or not test_mask.any():
+    raise ValueError("dataset must contain separate train, validation and test years")
 
 X_train = df.loc[train_mask, FEATURES].fillna(0)
+X_val = df.loc[validation_mask, FEATURES].fillna(0)
 X_test = df.loc[test_mask, FEATURES].fillna(0)
 y_train = df.loc[train_mask, TARGET]
+y_val = df.loc[validation_mask, TARGET]
 y_test = df.loc[test_mask, TARGET]
 
 print(f"   Train: {len(X_train):,} записей ({y_train.mean():.4f} позитивных)")
+print(f"   Validation: {len(X_val):,} записей ({y_val.mean():.4f} позитивных)")
 print(f"   Test:  {len(X_test):,} записей ({y_test.mean():.4f} позитивных)")
 print(f"   Позитивных в тесте: {y_test.sum():,}")
 print(f"   Негативных в тесте: {(1 - y_test).sum():,}")
@@ -80,9 +86,9 @@ print(f"\n⚖️ scale_pos_weight: {scale_pos_weight:.2f}")
 def evaluate(name, model):
     print(f"\n🚀 {name}...")
     model.fit(X_train, y_train)
-    proba = model.predict_proba(X_test)[:, 1]
-    ap = average_precision_score(y_test, proba)
-    auc = roc_auc_score(y_test, proba)
+    proba = model.predict_proba(X_val)[:, 1]
+    ap = average_precision_score(y_val, proba)
+    auc = roc_auc_score(y_val, proba)
     print(f"   PR-AUC: {ap:.4f}  |  ROC-AUC: {auc:.4f}")
     return model, proba, ap, auc
 
@@ -149,8 +155,8 @@ print(f"\n🎯 СТРАТЕГИИ ВЫБОРА ПОРОГА:")
 print(f"{'Стратегия':<30} {'Порог':>8} {'Precision':>10} {'Recall':>8} {'F1':>8} {'Алертов':>9}")
 print("-" * 80)
 
-prec_arr, rec_arr, thr_arr = precision_recall_curve(y_test, proba)
-f1_arr = np.array([f1_score(y_test, (proba >= t).astype(int), zero_division=0)
+prec_arr, rec_arr, thr_arr = precision_recall_curve(y_val, proba)
+f1_arr = np.array([f1_score(y_val, (proba >= t).astype(int), zero_division=0)
                    for t in thr_arr])
 
 strategies = {}
@@ -167,9 +173,9 @@ best_strat = None
 best_f1 = -1
 for strat, thr in strategies.items():
     y_pred = (proba >= thr).astype(int)
-    p = precision_score(y_test, y_pred, zero_division=0)
-    r = recall_score(y_test, y_pred, zero_division=0)
-    f1 = f1_score(y_test, y_pred, zero_division=0)
+    p = precision_score(y_val, y_pred, zero_division=0)
+    r = recall_score(y_val, y_pred, zero_division=0)
+    f1 = f1_score(y_val, y_pred, zero_division=0)
     alerts = int(y_pred.sum())
     print(f"{strat:<30} {thr:>8.4f} {p:>10.3f} {r:>8.3f} {f1:>8.3f} {alerts:>9,}")
     if f1 > best_f1:
@@ -178,6 +184,9 @@ for strat, thr in strategies.items():
         best_threshold = thr
 
 print(f"\n🎯 ИТОГ ({best_strat}, порог {best_threshold:.4f}):")
+proba = best_model.predict_proba(X_test)[:, 1]
+ap = average_precision_score(y_test, proba)
+auc = roc_auc_score(y_test, proba)
 y_pred = (proba >= best_threshold).astype(int)
 p = precision_score(y_test, y_pred, zero_division=0)
 r = recall_score(y_test, y_pred, zero_division=0)
@@ -185,6 +194,8 @@ f1 = f1_score(y_test, y_pred, zero_division=0)
 print(f"   Precision: {p:.3f}")
 print(f"   Recall:    {r:.3f}")
 print(f"   F1:        {f1:.3f}")
+print(f"   PR-AUC:    {ap:.4f}")
+print(f"   ROC-AUC:   {auc:.4f}")
 print(f"   Алертов:   {y_pred.sum():,}")
 
 cm = confusion_matrix(y_test, y_pred)

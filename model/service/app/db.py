@@ -24,6 +24,12 @@ class SensorEventDB(Base):
     value = Column(String, nullable=False)
     is_alarm = Column(Boolean, nullable=False, default=False)
     timestamp = Column(DateTime, nullable=False)
+    nsd_due_at = Column(DateTime)
+    nsd_processed_at = Column(DateTime)
+    periodic_processed_at = Column(DateTime)
+    nsd_due_at = Column(DateTime)
+    nsd_processed_at = Column(DateTime)
+    periodic_processed_at = Column(DateTime)
 
 class PredictionLogDB(Base):
     """Своя копия прогнозов: мониторинг, дрейф, дообучение."""
@@ -33,13 +39,17 @@ class PredictionLogDB(Base):
         {"schema": "ml"},
     )
     id = Column(BigInteger, primary_key=True)
+    prediction_id = Column(String, unique=True, index=True)
+    schema_version = Column(Integer, nullable=False, default=1)
     object_id = Column(Integer, nullable=False)
     prediction_type = Column(String, nullable=False)
     risk_score = Column(Float)
     risk_level = Column(String)
     is_alert = Column(Boolean)
     features_json = Column(Text)
+    model_version = Column(String, nullable=False, default="v1.0")
     predicted_at = Column(DateTime, default=datetime.utcnow)
+    published_at = Column(DateTime)
 
 engine = create_engine(settings.database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine)
@@ -49,6 +59,23 @@ def init_db():
         c.execute(text("CREATE SCHEMA IF NOT EXISTS ml"))
         c.commit()
     Base.metadata.create_all(engine, checkfirst=True)
+    with engine.connect() as c:
+        c.execute(text("ALTER TABLE ml.events ADD COLUMN IF NOT EXISTS nsd_due_at TIMESTAMP"))
+        c.execute(text("ALTER TABLE ml.events ADD COLUMN IF NOT EXISTS nsd_processed_at TIMESTAMP"))
+        c.execute(text("ALTER TABLE ml.events ADD COLUMN IF NOT EXISTS periodic_processed_at TIMESTAMP"))
+        c.execute(text("CREATE INDEX IF NOT EXISTS ix_ml_events_pending_nsd ON ml.events (nsd_due_at) WHERE nsd_due_at IS NOT NULL AND nsd_processed_at IS NULL"))
+        c.execute(text("CREATE INDEX IF NOT EXISTS ix_ml_events_pending_periodic ON ml.events (object_id, timestamp) WHERE periodic_processed_at IS NULL"))
+        c.execute(text("ALTER TABLE ml.events ADD COLUMN IF NOT EXISTS nsd_due_at TIMESTAMP"))
+        c.execute(text("ALTER TABLE ml.events ADD COLUMN IF NOT EXISTS nsd_processed_at TIMESTAMP"))
+        c.execute(text("ALTER TABLE ml.events ADD COLUMN IF NOT EXISTS periodic_processed_at TIMESTAMP"))
+        c.execute(text("CREATE INDEX IF NOT EXISTS ix_ml_events_pending_nsd ON ml.events (nsd_due_at) WHERE nsd_due_at IS NOT NULL AND nsd_processed_at IS NULL"))
+        c.execute(text("CREATE INDEX IF NOT EXISTS ix_ml_events_pending_periodic ON ml.events (object_id, timestamp) WHERE periodic_processed_at IS NULL"))
+        c.execute(text("ALTER TABLE ml.prediction_log ADD COLUMN IF NOT EXISTS prediction_id VARCHAR"))
+        c.execute(text("ALTER TABLE ml.prediction_log ADD COLUMN IF NOT EXISTS schema_version INTEGER NOT NULL DEFAULT 1"))
+        c.execute(text("ALTER TABLE ml.prediction_log ADD COLUMN IF NOT EXISTS model_version VARCHAR NOT NULL DEFAULT 'v1.0'"))
+        c.execute(text("ALTER TABLE ml.prediction_log ADD COLUMN IF NOT EXISTS published_at TIMESTAMP"))
+        c.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_ml_prediction_log_prediction_id ON ml.prediction_log (prediction_id) WHERE prediction_id IS NOT NULL"))
+        c.commit()
 
 def prune_old_events(days: int = 45):
     """Держим копию модели крошечной."""

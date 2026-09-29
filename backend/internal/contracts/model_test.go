@@ -8,6 +8,7 @@ import (
 
 func TestSensorEventMatchesPythonContract(t *testing.T) {
 	payload := []byte(`{
+		"schema_version":1,
 		"event_id":"evt-1",
 		"object_id":42,
 		"channel_id":"temperature-1",
@@ -28,6 +29,7 @@ func TestSensorEventMatchesPythonContract(t *testing.T) {
 
 func TestPredictionValidation(t *testing.T) {
 	prediction := Prediction{
+		SchemaVersion:  SchemaVersion,
 		ObjectID:       42,
 		PredictionType: PredictionTypeFireRisk,
 		RiskScore:      0.75,
@@ -48,6 +50,7 @@ func TestPredictionValidation(t *testing.T) {
 
 func TestPredictionMatchesCurrentPythonServiceContract(t *testing.T) {
 	payload := []byte(`{
+		"schema_version":1,
 		"object_id":9999,
 		"prediction_type":"nsd_event",
 		"risk_score":0.42,
@@ -64,8 +67,8 @@ func TestPredictionMatchesCurrentPythonServiceContract(t *testing.T) {
 	if err := prediction.Validate(); err != nil {
 		t.Fatalf("validate Python Prediction: %v", err)
 	}
-	if prediction.SchemaVersion != 0 {
-		t.Fatalf("expected omitted schema version to remain zero, got %d", prediction.SchemaVersion)
+	if prediction.SchemaVersion != SchemaVersion {
+		t.Fatalf("unexpected schema version: got %d", prediction.SchemaVersion)
 	}
 	if prediction.IsAlert == nil || !*prediction.IsAlert {
 		t.Fatal("expected is_alert=true")
@@ -78,6 +81,7 @@ func TestPredictionMatchesCurrentPythonServiceContract(t *testing.T) {
 
 func TestPredictionAcceptsRFC3339Timestamp(t *testing.T) {
 	payload := []byte(`{
+		"schema_version":1,
 		"object_id":42,
 		"prediction_type":"fire_risk",
 		"risk_score":0.8,
@@ -92,6 +96,22 @@ func TestPredictionAcceptsRFC3339Timestamp(t *testing.T) {
 	}
 	if prediction.IsAlert != nil {
 		t.Fatal("expected omitted is_alert to remain nil")
+	}
+}
+
+func TestPredictionRejectsUnsupportedSchemaVersion(t *testing.T) {
+	prediction := Prediction{
+		SchemaVersion:  SchemaVersion + 1,
+		ObjectID:       42,
+		PredictionType: PredictionTypeFireRisk,
+		RiskScore:      0.5,
+		RiskLevel:      "medium",
+		PredictedAt:    time.Now().UTC(),
+		FeaturesUsed:   json.RawMessage(`{}`),
+		ModelVersion:   "v1.0",
+	}
+	if err := prediction.Validate(); err == nil {
+		t.Fatal("expected unsupported schema version to fail")
 	}
 }
 

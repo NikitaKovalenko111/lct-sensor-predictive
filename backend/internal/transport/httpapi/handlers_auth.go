@@ -21,19 +21,20 @@ func (s *Server) registerAuthRoutes(mux *http.ServeMux) {
 		s.security.AuditMutation("user.create", "user", s.createUser), auth.RoleAdmin,
 	))
 	mux.HandleFunc("PATCH /api/v1/users/{user_id}", s.security.RequireRoles(
-		s.security.AuditMutation("user.role.update", "user", s.updateUserRole), auth.RoleAdmin,
+		requireUUIDPath("user_id", s.security.AuditMutation("user.role.update", "user", s.updateUserRole)), auth.RoleAdmin,
 	))
 	mux.HandleFunc("DELETE /api/v1/users/{user_id}", s.security.RequireRoles(
-		s.security.AuditMutation("user.delete", "user", s.deleteUser), auth.RoleAdmin,
+		requireUUIDPath("user_id", s.security.AuditMutation("user.delete", "user", s.deleteUser)), auth.RoleAdmin,
 	))
 	mux.HandleFunc("GET /api/v1/audit-logs", s.security.RequireRoles(s.listAuditLogs, auth.RoleAdmin))
 }
 
 func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
-	items, err := s.authRepository.ListUsers(
-		r.Context(), int(parseInt64(query.Get("limit"))), int(parseInt64(query.Get("offset"))),
-	)
+	limit, offset, ok := parsePagination(w, r)
+	if !ok {
+		return
+	}
+	items, err := s.authRepository.ListUsers(r.Context(), limit, offset)
 	if err != nil {
 		s.logger.Error("list users", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to list users")
@@ -153,11 +154,15 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listAuditLogs(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
+	limit, offset, ok := parsePagination(w, r)
+	if !ok {
+		return
+	}
 	items, err := s.authRepository.ListAudit(r.Context(), auth.AuditFilter{
 		Username: query.Get("username"),
 		Action:   query.Get("action"),
-		Limit:    int(parseInt64(query.Get("limit"))),
-		Offset:   int(parseInt64(query.Get("offset"))),
+		Limit:    limit,
+		Offset:   offset,
 	})
 	if err != nil {
 		s.logger.Error("list audit logs", "error", err)

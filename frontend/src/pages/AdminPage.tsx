@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext'
 import { formatFullDateTime, roleLabel } from '../lib/format'
 import type { AuditEntry, BackendStatus, Role, User } from '../types/api'
 
-const roles: Role[] = ['dispatcher', 'analyst', 'admin']
+const roles: Role[] = ['dispatcher', 'analyst', 'manager', 'admin']
 
 export function AdminPage() {
   const { user: currentUser } = useAuth()
@@ -20,9 +20,25 @@ export function AdminPage() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null)
 
   const load = async () => {
-    const [userPage, auditPage] = await Promise.all([api.listUsers(), api.listAudit()])
-    setUsers(userPage.items)
-    setAudit(auditPage.items)
+    setError('')
+    try {
+      const loadAll = async <T,>(loader: (offset: number) => Promise<{ items: T[] }>) => {
+        const items: T[] = []
+        for (let offset = 0; ; offset += 200) {
+          const page = await loader(offset)
+          items.push(...page.items)
+          if (page.items.length < 200) return items
+        }
+      }
+      const [userItems, auditItems] = await Promise.all([
+        loadAll((offset) => api.listUsers(200, offset)),
+        loadAll((offset) => api.listAudit(200, offset)),
+      ])
+      setUsers(userItems)
+      setAudit(auditItems)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Не удалось загрузить данные администрирования')
+    }
   }
 
   useEffect(() => { void load() }, [])
